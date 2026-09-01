@@ -812,8 +812,13 @@ async def update_status(msg, text, show_cancel=True):
 
 async def abort_task_for_chat(chat_id):
     """Cancela la tarea activa para este chat y limpia los archivos temporales."""
-    info = ACTIVE_TASKS.pop(chat_id, None)
+    chat_key = str(chat_id)
+    info = ACTIVE_TASKS.pop(chat_key, None)
+    if not info and chat_key.lstrip('-').isdigit():
+        info = ACTIVE_TASKS.pop(int(chat_key), None)
+        
     if info:
+        info["cancelled"] = True
         task = info.get("task")
         if task and not task.done():
             task.cancel()
@@ -826,7 +831,7 @@ async def abort_task_for_chat(chat_id):
         msg = info.get("msg")
         if msg:
             try:
-                await msg.edit_text("🛑 *Acción cancelada.*\n_Se ha detenido la descarga y edición del video y se han liberado los recursos._", parse_mode="Markdown")
+                await msg.edit_text("🛑 *Acción cancelada.*\n\n_Se ha detenido la descarga y edición del video y se han liberado los recursos._", parse_mode="Markdown")
             except Exception:
                 pass
         return True
@@ -1142,19 +1147,23 @@ async def cmd_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     aborted = await abort_task_for_chat(chat_id)
-    if not aborted:
+    if aborted:
+        await update.message.reply_text("🛑 *Acción cancelada con éxito.* Se ha detenido el proceso.", parse_mode="Markdown")
+    else:
         await update.message.reply_text("ℹ️ No hay ningún proceso de descarga o edición activo en este momento.")
 
 async def handle_callback_abort(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Cancelando acción...")
+    await query.answer()
     chat_id = update.effective_chat.id
-    aborted = await abort_task_for_chat(chat_id)
-    if not aborted:
-        try:
-            await query.edit_message_text("ℹ️ El proceso ya había finalizado o no estaba activo.")
-        except Exception:
-            pass
+    await abort_task_for_chat(chat_id)
+    try:
+        await query.edit_message_text(
+            "🛑 *Acción cancelada.*\n\n_Se ha detenido la descarga y edición del video y se han liberado los recursos._",
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
