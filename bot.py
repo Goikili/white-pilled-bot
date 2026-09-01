@@ -83,8 +83,8 @@ import yt_dlp
 from google import genai
 from google.genai import types
 from moviepy.editor import VideoFileClip, ColorClip, TextClip, CompositeVideoClip, VideoClip, vfx
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ================= CONFIGURACIÓN =================
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6LY_aEHSb8Hxj8jzdwLUCHNJB5-qN5remU3zOpGDSUfWw")
@@ -725,11 +725,39 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
     final.close()
     return output_path
 
-async def update_status(msg, text):
+ACTIVE_TASKS = {}
+CANCEL_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🛑 Cancelar acción", callback_data="abort_process")]
+])
+
+async def update_status(msg, text, show_cancel=True):
     try:
-        await msg.edit_text(text, parse_mode="Markdown")
+        reply_markup = CANCEL_KEYBOARD if show_cancel else None
+        await msg.edit_text(text, parse_mode="Markdown", reply_markup=reply_markup)
     except Exception:
         pass
+
+async def abort_task_for_chat(chat_id):
+    """Cancela la tarea activa para este chat y limpia los archivos temporales."""
+    info = ACTIVE_TASKS.pop(chat_id, None)
+    if info:
+        task = info.get("task")
+        if task and not task.done():
+            task.cancel()
+        for p in [info.get("raw_clip"), info.get("final_video")]:
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+        msg = info.get("msg")
+        if msg:
+            try:
+                await msg.edit_text("🛑 *Acción cancelada.*\n_Se ha detenido la descarga y edición del video y se han liberado los recursos._", parse_mode="Markdown")
+            except Exception:
+                pass
+        return True
+    return False
 
 class SimpleBotContext:
     def __init__(self, bot):
@@ -740,10 +768,20 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
     msg = await context.bot.send_message(
         chat_id=chat_id,
         text=f"{header}🔍 *[1/5]* Localizando clip de video...",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=CANCEL_KEYBOARD
     )
     raw_clip = None
     final_video = None
+    
+    current_task = asyncio.current_task()
+    ACTIVE_TASKS[chat_id] = {
+        "task": current_task,
+        "msg": msg,
+        "raw_clip": None,
+        "final_video": None
+    }
+
     try:
         if direct_url:
             data = {"search_query": direct_url, "top_title": "DEBATE VIRAL", "speaker_name": "DEBATE", "caption": ""}
@@ -761,6 +799,8 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
             )
 
         raw_clip, meta_info = await asyncio.to_thread(download_clip, target)
+        if chat_id in ACTIVE_TASKS:
+            ACTIVE_TASKS[chat_id]["raw_clip"] = raw_clip
 
         await update_status(
             msg,
@@ -778,10 +818,13 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
         final_video = await asyncio.to_thread(
             edit_whitepilled_style, raw_clip, video_data["top_title"], video_data["speaker_name"]
         )
+        if chat_id in ACTIVE_TASKS:
+            ACTIVE_TASKS[chat_id]["final_video"] = final_video
 
         await update_status(
             msg,
-            f"{header}📤 *[5/5]* ¡Edición completada!\n\n_Subiendo video a Telegram..._"
+            f"{header}📤 *[5/5]* ¡Edición completada!\n\n_Subiendo video a Telegram..._",
+            show_cancel=False
         )
 
         caption_text = f"🔥 *{clean_top_title}*\n\n{video_data['caption']}"
@@ -801,10 +844,24 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
             await msg.delete()
         except Exception:
             pass
+    except asyncio.CancelledError:
+        print(f"🛑 Tarea cancelada por el usuario para chat_id {chat_id}")
+        if raw_clip and os.path.exists(raw_clip):
+            try:
+                os.remove(raw_clip)
+            except Exception:
+                pass
+        if final_video and os.path.exists(final_video):
+            try:
+                os.remove(final_video)
+            except Exception:
+                pass
+        return
     except Exception as e:
         print(f"❌ Error en process_and_send: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Error: {e}")
     finally:
+        ACTIVE_TASKS.pop(chat_id, None)
         if raw_clip and os.path.exists(raw_clip):
             try:
                 os.remove(raw_clip)
@@ -865,15 +922,34 @@ async def cmd_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    aborted = await abort_task_for_chat(chat_id)
+    if not aborted:
+        await update.message.reply_text("ℹ️ No hay ningún proceso de descarga o edición activo en este momento.")
+
+async def handle_callback_abort(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Cancelando acción...")
+    chat_id = update.effective_chat.id
+    aborted = await abort_task_for_chat(chat_id)
+    if not aborted:
+        try:
+            await query.edit_message_text("ℹ️ El proceso ya había finalizado o no estaba activo.")
+        except Exception:
+            pass
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✅ *Bot Activo (White Pilled Edition)*\n\n"
         "Comandos disponibles:\n"
         "• `/video` — Busca y maqueta un debate viral de España al instante.\n"
         "• `/video [tema]` — Busca y maqueta un clip sobre un tema concreto (ej. `/video pensiones`).\n"
+        "• `/cancelar` (o `/abort`) — Cancela inmediatamente la descarga o maquetación en curso.\n"
         "• `/horarios` — Consulta los horarios automáticos de envío diario (12:00, 15:00, 18:00).\n\n"
         "🔗 *Pegado directo de enlace:*\n"
-        "Puedes simplemente pegar cualquier enlace de TikTok, Instagram Reel o YouTube Shorts en este chat (y opcionalmente escribir un titular detrás) y el bot lo maquetará automáticamente.",
+        "Puedes simplemente pegar cualquier enlace de TikTok, Instagram Reel o YouTube Shorts en este chat (y opcionalmente escribir un titular o interlocutor detrás) y el bot lo maquetará automáticamente.\n\n"
+        "🛑 Además, mientras se esté procesando cualquier video verás un botón interactivo de *'Cancelar acción'*.",
         parse_mode="Markdown"
     )
 
@@ -888,7 +964,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await process_and_send(update.effective_chat.id, context, direct_url=target_url, custom_title=custom_title)
     else:
         await update.message.reply_text(
-            "💡 Envíame un enlace de TikTok, Instagram Reel o YouTube Shorts para maquetarlo (puedes añadir un titular al lado si quieres), o usa el comando /video para generar un debate viral."
+            "💡 Envíame un enlace de TikTok, Instagram Reel o YouTube Shorts para maquetarlo (puedes añadir un titular al lado si quieres), o usa el comando /video para generar un debate viral.\n\nPuedes cancelar cualquier acción en curso con /cancelar."
         )
 
 async def post_init(application):
@@ -906,6 +982,8 @@ def main():
     )
     app.add_handler(CommandHandler("video", cmd_video))
     app.add_handler(CommandHandler("link", cmd_link))
+    app.add_handler(CommandHandler(["cancel", "cancelar", "abort", "parar"], cmd_cancel))
+    app.add_handler(CallbackQueryHandler(handle_callback_abort, pattern="^abort_process$"))
     app.add_handler(CommandHandler("horarios", cmd_horarios))
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text_message))
