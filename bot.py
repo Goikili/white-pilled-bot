@@ -171,21 +171,26 @@ def clean_text_for_title(t):
     return clean
 
 def extract_punchy_title_and_speaker(raw_title, raw_desc, uploader):
-    """Extrae inteligentemente un titular en 2 líneas y el interlocutor a partir del texto real del video."""
-    full_text = str(raw_title or "") + " " + str(raw_desc or "")
-    full_text = re.sub(r'https?://\S+', '', full_text)
-    full_text = re.sub(r'[#@]\w+', '', full_text)
-    clean = re.sub(r'[^\w\s¿?¡!ÁÉÍÓÚáéíóúÑñ]', ' ', full_text)
-    words = [w for w in clean.split() if len(w) > 2 and w.lower() not in [
-        'para', 'este', 'esta', 'estos', 'estas', 'como', 'pero', 'todo', 'todos', 'video', 'tiktok', 'reel', 'reels', 'shorts', 'youtube'
-    ]]
+    """Extrae un titular con sentido completo a partir del título real del video."""
+    t = str(raw_title or "").strip()
+    if not t:
+        t = str(raw_desc or "").strip()
+
+    # Eliminar URLs, menciones y hashtags
+    t = re.sub(r'https?://\S+', '', t)
+    t = re.sub(r'[#@]\w+', '', t)
+    # Limpiar separadores comunes como "|" o "•"
+    if '|' in t:
+        t = t.split('|')[0]
+    if ' - ' in t:
+        parts = t.split(' - ')
+        t = parts[0] if len(parts[0]) > 10 else parts[1]
     
-    if len(words) >= 4:
-        title_words = words[:5]
-        mid = (len(title_words) + 1) // 2
-        top_title = f"{' '.join(title_words[:mid])}\n{' '.join(title_words[mid:])}".upper()
-    elif words:
-        top_title = " ".join(words).upper()
+    t = ' '.join(t.split()).strip('-_: ')
+    
+    # Si tras limpiar queda un texto con sentido, usarlo
+    if len(t.split()) >= 2:
+        top_title = format_to_two_lines(t)
     else:
         top_title = "DEBATE SOCIAL\nEN ESPAÑA"
 
@@ -198,13 +203,31 @@ def analyze_video_content(metadata_info, fallback_data, custom_title=None):
     """Analiza la información del video para generar el titular en 2 líneas y el copy de Instagram."""
     print("🧠 Analizando contenido para redactar titulares fieles...")
     
-    # Si el usuario especificó un título junto al enlace
+    # Si el usuario especificó una descripción o título junto al enlace
     if custom_title:
-        formatted_title = format_to_two_lines(custom_title)
+        title_text = custom_title.strip()
+        speaker = metadata_info.get("uploader") or metadata_info.get("channel") or "DEBATE"
+        
+        # Permitir separar interlocutor y titular con dos puntos o guión:
+        # Ej: "Yolanda Díaz: ¿Reducir jornada a 37 horas?"
+        if ":" in title_text:
+            parts = title_text.split(":", 1)
+            speaker = parts[0].strip().upper()[:20]
+            title_text = parts[1].strip()
+        elif " - " in title_text:
+            parts = title_text.split(" - ", 1)
+            if len(parts[0]) <= 20 and len(parts[1]) > len(parts[0]):
+                speaker = parts[0].strip().upper()
+                title_text = parts[1].strip()
+            else:
+                title_text = parts[0].strip()
+                speaker = parts[1].strip().upper()[:20]
+
+        formatted_title = format_to_two_lines(title_text)
         return {
             "top_title": formatted_title,
-            "speaker_name": metadata_info.get("uploader", "DEBATE")[:20].upper(),
-            "caption": f"🔥 {formatted_title.replace(chr(10), ' ')}\n\n¿Qué opinas sobre este debate? Déjalo en comentarios. 👇\n\n#Debate #España #Viral"
+            "speaker_name": speaker[:20].upper(),
+            "caption": f"🔥 {formatted_title.replace(chr(10), ' ')}\n\n¿Qué opinas sobre este debate? Déjalo en comentarios. 👇\n\n#Debate #España #Viral #Reflexion"
         }
 
     real_title = metadata_info.get("title") or fallback_data.get("top_title") or ""
@@ -442,13 +465,52 @@ def download_clip(query_or_url):
     return output_file, meta_info
 
 def format_to_two_lines(text):
-    """Formatea cualquier texto para que tenga exactamente 2 líneas equilibradas."""
-    words = [w for w in text.replace('\n', ' ').split() if w]
+    """Formatea cualquier frase para que tenga exactamente 2 líneas con sentido completo, sin cortar palabras bruscamente."""
+    clean = ' '.join(text.replace('\n', ' ').split())
+    words = clean.split()
     if len(words) <= 2:
-        return " ".join(words)
-    words = words[:7]
-    mid = (len(words) + 1) // 2
-    return f"{' '.join(words[:mid])}\n{' '.join(words[mid:])}"
+        return clean.upper()
+    if len(words) == 3:
+        return f"{words[0].upper()}\n{' '.join(words[1:]).upper()}"
+    
+    # Preposiciones, conjunciones y artículos donde es natural hacer la pausa de lectura
+    split_connectors = {
+        'de', 'del', 'en', 'por', 'para', 'con', 'sin', 'sobre', 'tras',
+        'es', 'son', 'ser', 'era', 'fue',
+        'que', 'y', 'o', 'pero', 'mas', 'si', 'ni',
+        'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
+        'vs', 'contra'
+    }
+    
+    # Limitar longitud máxima a 9-10 palabras para no saturar la pantalla, pero sin cortar el sentido
+    if len(words) > 10:
+        words = words[:10]
+        
+    n = len(words)
+    best_split = n // 2
+    best_score = float('inf')
+    
+    for i in range(1, n):
+        l1 = ' '.join(words[:i])
+        l2 = ' '.join(words[i:])
+        diff = abs(len(l1) - len(l2))
+        
+        bonus = 0
+        # Es natural empezar la segunda línea con un conector
+        if words[i].lower() in split_connectors:
+            bonus -= 12
+        # Evitar dejar una palabra diminuta suelta al final de la primera línea
+        if len(words[i-1]) <= 2:
+            bonus += 10
+            
+        score = diff + bonus
+        if score < best_score:
+            best_score = score
+            best_split = i
+            
+    line1 = ' '.join(words[:best_split]).upper()
+    line2 = ' '.join(words[best_split:]).upper()
+    return f"{line1}\n{line2}"
 
 def create_scaled_two_line_clip(text, max_w, max_h, font_path, initial_fontsize=88, min_fontsize=38):
     """Genera un TextClip asegurando que no sobrepase exactamente 2 líneas y quepa en max_w y max_h."""
