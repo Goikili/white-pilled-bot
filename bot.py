@@ -21,6 +21,26 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+# Configurar FFmpeg automáticamente para yt-dlp y MoviePy
+FFMPEG_PATH = None
+try:
+    import imageio_ffmpeg
+    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    if os.path.exists(ffmpeg_bin):
+        FFMPEG_PATH = ffmpeg_bin
+        bin_dir = os.path.dirname(ffmpeg_bin)
+        if bin_dir not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+        # Asegurar copia local en la carpeta del bot
+        local_ffmpeg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg.exe")
+        if not os.path.exists(local_ffmpeg):
+            try:
+                shutil.copy(ffmpeg_bin, local_ffmpeg)
+            except Exception:
+                pass
+except Exception:
+    pass
+
 # Servidor HTTP de salud para compatibilidad con Render Web Service
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -324,6 +344,7 @@ def download_clip(query_or_url):
             'merge_output_format': 'mp4',
             'extractor_args': extractor_args,
             'cookiefile': cookie_path,
+            'ffmpeg_location': FFMPEG_PATH,
             'quiet': True,
             'no_warnings': True
         }
@@ -340,6 +361,7 @@ def download_clip(query_or_url):
         'outtmpl': output_file,
         'extractor_args': extractor_args,
         'match_filter': duration_filter,
+        'ffmpeg_location': FFMPEG_PATH,
         'max_downloads': 1,
         'quiet': True,
         'no_warnings': True
@@ -406,6 +428,7 @@ def download_clip(query_or_url):
             'merge_output_format': 'mp4',
             'outtmpl': output_file,
             'extractor_args': extractor_args,
+            'ffmpeg_location': FFMPEG_PATH,
             'max_downloads': 1,
             'quiet': True,
             'no_warnings': True
@@ -439,6 +462,7 @@ def download_clip(query_or_url):
             'outtmpl': output_file,
             'extractor_args': extractor_args,
             'playlist_items': '1',
+            'ffmpeg_location': FFMPEG_PATH,
             'max_downloads': 1,
             'quiet': True,
             'no_warnings': True

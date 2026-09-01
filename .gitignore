@@ -6,3 +6,4 @@ __pycache__/
 raw_temp*
 final_reel*
 .env
+*.exe
