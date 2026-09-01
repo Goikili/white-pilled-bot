@@ -25,12 +25,13 @@ if sys.platform == "win32":
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.Resampling.LANCZOS
 
-# Configuración automática de ImageMagick para MoviePy en Windows
-magick_path = os.environ.get("IMAGEMAGICK_BINARY") or shutil.which("magick") or r"C:\Users\goiko\AppData\Local\Microsoft\WindowsApps\magick.exe"
-if magick_path:
-    os.environ["IMAGEMAGICK_BINARY"] = magick_path
-    from moviepy.config import change_settings
-    change_settings({"IMAGEMAGICK_BINARY": magick_path})
+# Configuración automática de ImageMagick para MoviePy
+if sys.platform == "win32":
+    magick_path = os.environ.get("IMAGEMAGICK_BINARY") or shutil.which("magick") or r"C:\Users\goiko\AppData\Local\Microsoft\WindowsApps\magick.exe"
+    if magick_path:
+        os.environ["IMAGEMAGICK_BINARY"] = magick_path
+        from moviepy.config import change_settings
+        change_settings({"IMAGEMAGICK_BINARY": magick_path})
 
 import numpy as np
 import yt_dlp
@@ -115,7 +116,13 @@ def fetch_trend_data(custom_topic=None):
                 time.sleep(1)
                 continue
 
-    raise RuntimeError(f"No se pudo generar con ningún modelo de Gemini: {last_error}")
+    # Fallback predeterminado si no hay cuota de Gemini
+    fallback_topics = [
+        {"search_query": "debate alquiler espana #shorts", "top_title": "¿ALQUILAR ES\nTIRAR EL DINERO?", "speaker_name": "CRISIS VIVIENDA", "caption": "¿Tú qué opinas sobre el precio del alquiler en España? Déjalo en comentarios. 👇\n\n#Vivienda #Alquiler #España #Debate"},
+        {"search_query": "debate jornada laboral 37 horas espana #shorts", "top_title": "¿REDUCIR JORNADA\nA 37,5 HORAS?", "speaker_name": "DEBATE LABORAL", "caption": "¿Crees que reducir la jornada aumentará la productividad o dañará a las PYMES? Comenta tu opinión. 👇\n\n#Trabajo #Economia #España"}
+    ]
+    import random
+    return random.choice(fallback_topics)
 
 def parse_json_response(raw_text):
     text = raw_text.strip()
@@ -127,49 +134,61 @@ def parse_json_response(raw_text):
         text = text[:-3]
     return json.loads(text.strip())
 
-def analyze_video_content(video_path, fallback_data):
-    """Sube el clip descargado a Gemini para que lo escuche/vea y genere textos 100% fieles a lo que se dice."""
-    print("🧠 Analizando contenido real del video con Gemini multimodal...")
-    try:
-        uploaded_file = client.files.upload(file=video_path)
-        for _ in range(10):
-            if uploaded_file.state.name == "ACTIVE":
-                break
-            time.sleep(1)
-            uploaded_file = client.files.get(name=uploaded_file.name)
+def clean_text_for_title(t):
+    # Eliminar emojis y caracteres extraños
+    clean = re.sub(r'[^\w\s¿?¡!ÁÉÍÓÚáéíóúÑñ]', '', t).strip()
+    return clean
 
-        analysis_prompt = """
-Escucha y analiza con atención lo que se dice y debate en este clip de video (en español).
+def analyze_video_content(video_path, metadata_info, fallback_data):
+    """Analiza el video con Gemini si hay clave válida, o genera textos adaptados de la metadata real."""
+    print("🧠 Analizando contenido para redactar titulares fieles...")
+    
+    # Extraer información real descargada por yt-dlp
+    real_title = metadata_info.get("title") or fallback_data.get("top_title") or "DEBATE VIRAL"
+    real_uploader = metadata_info.get("uploader") or metadata_info.get("channel") or fallback_data.get("speaker_name") or "DEBATE"
+    real_desc = metadata_info.get("description") or fallback_data.get("caption") or ""
 
-Tu tarea es redactar los textos para maquetar este video en Instagram, garantizando que sean 100% acordes y fieles a lo que la persona realmente dice o debate en el video:
-1. "top_title": Titular polémico e impactante en MAYÚSCULAS en EXACTAMENTE 2 LÍNEAS (separadas por \\n, máximo 5-6 palabras en total) que resuma la idea principal o la pregunta clave de lo que se dice en el video.
-2. "speaker_name": Nombre de la persona que habla o etiqueta concisa del tema en MAYÚSCULAS (1-3 palabras máximo, ej: DANIEL LACALLE o CULTURA DEL ESFUERZO).
-3. "caption": Copy completo para Instagram en español de España explicando fielmente el punto de vista expresado en el video, invitando a comentar, con 4-5 hashtags relevantes.
+    # 1. Intentar consultar a Gemini con el contexto del título y descripción del video
+    analysis_prompt = f"""
+Eres editor de una cuenta viral de Instagram Reels de reflexión sociopolítica en España.
+Un usuario ha compartido este clip:
+Título original: "{real_title}"
+Autor/Canal: "{real_uploader}"
+Descripción: "{real_desc[:400]}"
+
+Tu tarea:
+1. "top_title": Titular polémico en MAYÚSCULAS en EXACTAMENTE 2 LÍNEAS (separadas por \\n, máximo 5-6 palabras en total) que plantee el conflicto o la pregunta clave del video.
+2. "speaker_name": Nombre de la persona o tema clave en MAYÚSCULAS (1-3 palabras máximo).
+3. "caption": Copy para Instagram en español de España reflexionando sobre el video, invitando a comentar, con 4-5 hashtags.
 
 Devuelve ÚNICAMENTE un objeto JSON:
-{
+{{
   "top_title": "LÍNEA 1\\nLÍNEA 2",
   "speaker_name": "NOMBRE O TEMA",
-  "caption": "Copy completo para Instagram..."
-}
+  "caption": "Copy completo..."
+}}
 """
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=[uploaded_file, analysis_prompt],
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        parsed = parse_json_response(response.text)
-
+    for model_name in ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"]:
         try:
-            client.files.delete(name=uploaded_file.name)
-        except Exception:
-            pass
+            response = client.models.generate_content(
+                model=model_name,
+                contents=analysis_prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            parsed = parse_json_response(response.text)
+            if parsed.get("top_title"):
+                print(f"✅ Titular generado con IA: {parsed.get('top_title')}")
+                return parsed
+        except Exception as e:
+            print(f"⚠️ Nota con IA ({e}), pasando al siguiente fallback...")
 
-        print(f"✅ Análisis completado. Titular fiel: {parsed.get('top_title')}")
-        return parsed
-    except Exception as e:
-        print(f"⚠️ Nota en análisis multimodal ({e}), usando datos iniciales de tendencia...")
-        return fallback_data
+    # 2. Fallback inteligente utilizando la metadata real del clip
+    formatted_title = format_to_two_lines(clean_text_for_title(real_title))
+    return {
+        "top_title": formatted_title,
+        "speaker_name": real_uploader[:25].upper(),
+        "caption": f"🔥 {real_title}\n\n¿Qué opinas sobre este debate? Déjanos tu opinión en los comentarios. 👇\n\n#Debate #España #Viral #Opinion"
+    }
 
 def clean_search_query(q):
     words = [w for w in re.split(r'\s+', q.strip()) if w.lower() not in ['tiktok', 'instagram', 'reels', 'clip', 'video', 'shorts']]
@@ -194,7 +213,9 @@ def download_clip(query_or_url):
     cookie_path = "cookies.txt" if (os.path.exists("cookies.txt") and not is_youtube) else None
     extractor_args = {'youtube': {'player_client': ['android']}} if is_youtube else {}
 
-    # Caso 1: Descarga directa por URL
+    meta_info = {}
+
+    # Caso 1: Descarga directa por URL (Instagram Reel, TikTok, YouTube)
     if is_direct_url:
         opts = {
             'format': 'bestvideo*+bestaudio/best',
@@ -206,10 +227,10 @@ def download_clip(query_or_url):
             'no_warnings': True
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([query_or_url])
+            meta_info = ydl.extract_info(query_or_url, download=True) or {}
         if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
             raise RuntimeError(f"No se pudo descargar el video desde la URL: {query_or_url}")
-        return output_file
+        return output_file, meta_info
 
     # Caso 2: Búsqueda inteligente de Shorts en España (<90s)
     clean_q = clean_search_query(query_or_url)
@@ -228,7 +249,9 @@ def download_clip(query_or_url):
 
     try:
         with yt_dlp.YoutubeDL(opts_search) as ydl:
-            ydl.download([f"ytsearch15:{clean_q}"])
+            search_res = ydl.extract_info(f"ytsearch15:{clean_q}", download=True)
+            if search_res and 'entries' in search_res and search_res['entries']:
+                meta_info = search_res['entries'][0] or {}
     except yt_dlp.utils.MaxDownloadsReached:
         pass
     except Exception as e:
@@ -241,7 +264,9 @@ def download_clip(query_or_url):
         print(f"🔄 Reintentando con consulta alternativa: '{alt_q}'...")
         try:
             with yt_dlp.YoutubeDL(opts_search) as ydl:
-                ydl.download([f"ytsearch15:{alt_q}"])
+                search_res = ydl.extract_info(f"ytsearch15:{alt_q}", download=True)
+                if search_res and 'entries' in search_res and search_res['entries']:
+                    meta_info = search_res['entries'][0] or {}
         except yt_dlp.utils.MaxDownloadsReached:
             pass
         except Exception as e:
@@ -250,13 +275,15 @@ def download_clip(query_or_url):
     if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
         raise RuntimeError(f"No se pudo descargar ningún video corto (<90s) para la búsqueda: '{query_or_url}'")
 
-    return output_file
+    return output_file, meta_info
 
 def format_to_two_lines(text):
     """Formatea cualquier texto para que tenga exactamente 2 líneas equilibradas."""
     words = [w for w in text.replace('\n', ' ').split() if w]
     if len(words) <= 2:
         return " ".join(words)
+    # Limitar a máximo 7 palabras
+    words = words[:7]
     mid = (len(words) + 1) // 2
     return f"{' '.join(words[:mid])}\n{' '.join(words[mid:])}"
 
@@ -294,13 +321,13 @@ def create_scaled_two_line_clip(text, max_w, max_h, font_path, initial_fontsize=
 def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
     if not output_path:
         output_path = f"final_reel_{int(time.time())}_{uuid.uuid4().hex[:6]}.mp4"
-    print("🎬 Editando video (B/N, Barra inferior completa, Franklin Gothic)...")
+    print("🎬 Editando video (B/N, Encuadre inteligente, Barra inferior completa)...")
     if not os.path.exists(raw_path) or os.path.getsize(raw_path) == 0:
         raise FileNotFoundError(f"El archivo fuente {raw_path} no existe o está vacío.")
 
     clip = VideoFileClip(raw_path).fx(vfx.blackwhite)
 
-    # Limitar duración a 75 segundos máximo para Shorts/Reels y acelerar renderizado
+    # Limitar duración a 75 segundos máximo para formato Reel
     MAX_DURATION = 75
     if clip.duration > MAX_DURATION:
         print(f"✂️ Acortando clip de {clip.duration:.1f}s a {MAX_DURATION}s para formato Reel...")
@@ -308,27 +335,54 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
 
     target_w, target_h = 1080, 1920
 
-    # AMPLIACIÓN UNIFORME CENTRADA DEL VIDEO
-    base_scale = target_w / clip.w
-    aspect_ratio = clip.w / clip.h
-    enlarge_factor = 1.16 if aspect_ratio >= 1.3 else 1.05
+    # ================= ENCUADRE INTELIGENTE (VERTICAL VS HORIZONTAL) =================
+    # La ventana disponible entre los textos superior e inferior es de aprox. 1050px
+    MAX_WINDOW_H = 1050
 
-    video_w = int(clip.w * base_scale * enlarge_factor)
-    video_h = int(clip.h * base_scale * enlarge_factor)
+    if clip.w < clip.h:
+        # CASO VIDEO VERTICAL (Reels de Instagram / TikToks / Shorts 9:16)
+        # Escalamos al ancho completo 1080 y recortamos la altura para que el interlocutor quede bien visible
+        scale = target_w / clip.w
+        scaled_w = target_w
+        scaled_h = int(clip.h * scale)
+        clip_scaled = clip.resize((scaled_w, scaled_h))
 
-    MAX_VIDEO_H = 1120
-    if video_h > MAX_VIDEO_H:
-        video_h = MAX_VIDEO_H
-        video_w = int(clip.w * (video_h / clip.h))
+        if scaled_h > MAX_WINDOW_H:
+            excess_h = scaled_h - MAX_WINDOW_H
+            # En videos verticales, el rostro y pecho suelen ubicarse en el tercio superior
+            crop_y1 = int(excess_h * 0.22)
+            main_video = (
+                clip_scaled
+                .crop(x1=0, y1=crop_y1, width=target_w, height=MAX_WINDOW_H)
+                .set_position(("center", "center"))
+            )
+            video_h = MAX_WINDOW_H
+            video_w = target_w
+        else:
+            main_video = clip_scaled.set_position(("center", "center"))
+            video_h = scaled_h
+            video_w = scaled_w
+    else:
+        # CASO VIDEO HORIZONTAL (16:9 panorámico)
+        # Ampliación uniforme del 16% para que se vea más grande sin perder calidad
+        base_scale = target_w / clip.w
+        enlarge_factor = 1.16
+        video_w = int(clip.w * base_scale * enlarge_factor)
+        video_h = int(clip.h * base_scale * enlarge_factor)
 
-    main_video = clip.resize((video_w, video_h)).set_position(("center", "center"))
+        if video_h > MAX_WINDOW_H:
+            video_h = MAX_WINDOW_H
+            video_w = int(clip.w * (video_h / clip.h))
+
+        main_video = clip.resize((video_w, video_h)).set_position(("center", "center"))
+
     video_y_start = (target_h - video_h) // 2
     video_y_bottom = video_y_start + video_h
 
     # Fondo negro
     background = ColorClip(size=(target_w, target_h), color=(0, 0, 0)).set_duration(clip.duration)
 
-    # 1. TEXTO SUPERIOR ESTRICTAMENTE EN 2 LÍNEAS (Dinámico según el espacio del video)
+    # 1. TEXTO SUPERIOR ESTRICTAMENTE EN 2 LÍNEAS (Dinámico según el espacio libre)
     top_margin = 75
     bottom_limit = video_y_start - 20
     available_top_h = max(60, bottom_limit - top_margin)
@@ -351,10 +405,10 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
         .set_duration(clip.duration)
     )
 
-    # 2. BARRA DE PROGRESO AL FONDO (Pegada a abajo, ancho completo 1080px, doble de alta: 88px)
+    # 2. BARRA DE PROGRESO AL FONDO (Pegada a abajo, ancho completo 1080px, 88px de alto)
     bar_height = 88
-    bar_total_w = target_w  # 1080px
-    bar_y = target_h - bar_height  # Pegada exactamente a la parte inferior
+    bar_total_w = target_w
+    bar_y = target_h - bar_height
 
     def make_progress_frame(t):
         w = max(1, int(bar_total_w * (t / clip.duration)))
@@ -442,40 +496,40 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
     header = "⏰ *[ENVÍO DIARIO PROGRAMADO]*\n\n" if is_scheduled else ""
     msg = await context.bot.send_message(
         chat_id=chat_id,
-        text=f"{header}🔍 *[1/5]* Buscando debate en España con IA...",
+        text=f"{header}🔍 *[1/5]* Localizando clip de video...",
         parse_mode="Markdown"
     )
     raw_clip = None
     final_video = None
     try:
         if direct_url:
-            data = {"search_query": direct_url, "top_title": "VIDEO ENLACE", "speaker_name": "DEBATE", "caption": ""}
+            data = {"search_query": direct_url, "top_title": "DEBATE VIRAL", "speaker_name": "DEBATE", "caption": ""}
             target = direct_url
             await update_status(
                 msg,
-                f"{header}📥 *[2/5]* Enlace recibido:\n`{direct_url[:50]}...`\n\n_Descargando clip de video..._"
+                f"{header}📥 *[2/5]* Enlace detectado:\n`{direct_url[:50]}...`\n\n_Descargando clip en alta calidad..._"
             )
         else:
             data = await asyncio.to_thread(fetch_trend_data, custom_topic)
             target = data["search_query"]
             await update_status(
                 msg,
-                f"{header}📥 *[2/5]* Búsqueda seleccionada:\n_{data['search_query']}_\n\n_Descargando el clip más viral de España..._"
+                f"{header}📥 *[2/5]* Búsqueda seleccionada:\n_{data['search_query']}_\n\n_Descargando clip de España..._"
             )
 
-        raw_clip = await asyncio.to_thread(download_clip, target)
+        raw_clip, meta_info = await asyncio.to_thread(download_clip, target)
 
         await update_status(
             msg,
-            f"{header}🧠 *[3/5]* Analizando audio y contenido real del clip para redactar textos fieles..."
+            f"{header}🧠 *[3/5]* Analizando contenido para redactar titulares fieles..."
         )
 
-        video_data = await asyncio.to_thread(analyze_video_content, raw_clip, data)
+        video_data = await asyncio.to_thread(analyze_video_content, raw_clip, meta_info, data)
 
         clean_top_title = video_data['top_title'].replace('\n', ' ')
         await update_status(
             msg,
-            f"{header}🎬 *[4/5]* Maquetando video:\n*{clean_top_title}*\n\n_Ampliando video, aplicando B/N y barra completa al fondo..._"
+            f"{header}🎬 *[4/5]* Maquetando video:\n*{clean_top_title}*\n\n_Encuadrando interlocutor, aplicando B/N y barra completa al fondo..._"
         )
 
         final_video = await asyncio.to_thread(
@@ -529,7 +583,6 @@ async def scheduled_dispatcher(application):
             current_time = now.strftime("%H:%M")
             current_date = now.strftime("%Y-%m-%d")
 
-            # Limpiar llaves de días anteriores
             keys_to_delete = [k for k in sent_dispatches if not k.startswith(current_date)]
             for k in keys_to_delete:
                 sent_dispatches.remove(k)
@@ -591,7 +644,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
 async def post_init(application):
-    # Iniciar el bucle de envíos programados sin bloquear el polling de Telegram
     asyncio.create_task(scheduled_dispatcher(application))
 
 def main():
