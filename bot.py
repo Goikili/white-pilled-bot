@@ -108,38 +108,34 @@ def fetch_trend_data(custom_topic=None):
     print("🔍 Generando titular y búsqueda de tendencia en España...")
     prompt = f"Debate o polémica sociopolítica en España: {custom_topic}" if custom_topic else "Busca el debate o entrevista sociopolítica más viral y comentada de hoy en España (con personajes, temas y español de España)."
 
-    last_error = None
-    for model_name in GEMINI_MODELS:
-        try:
-            print(f"🤖 Probando modelo {model_name}...")
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    tools=[types.Tool(google_search=types.GoogleSearch())],
-                    response_mime_type="application/json"
-                )
-            )
-            return parse_json_response(response.text)
-        except Exception as e_search:
-            err_str = str(e_search)
-            print(f"⚠️ Nota con {model_name} y búsqueda en vivo: {err_str[:120]}")
+    # Si la clave de Gemini es válida (empieza por AIza...), usar IA para buscar debates de última hora
+    if GEMINI_API_KEY and GEMINI_API_KEY.startswith("AIza"):
+        for model_name in GEMINI_MODELS:
             try:
+                print(f"🤖 Consultando {model_name}...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_PROMPT,
+                        tools=[types.Tool(google_search=types.GoogleSearch())],
                         response_mime_type="application/json"
                     )
                 )
                 return parse_json_response(response.text)
-            except Exception as e_direct:
-                print(f"❌ Falló {model_name} directo: {str(e_direct)[:120]}")
-                last_error = e_direct
-                time.sleep(1)
-                continue
+            except Exception:
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            response_mime_type="application/json"
+                        )
+                    )
+                    return parse_json_response(response.text)
+                except Exception:
+                    continue
 
     if custom_topic:
         clean_top = format_to_two_lines(f"DEBATE SOBRE {custom_topic}".upper())
@@ -288,7 +284,12 @@ def download_clip(query_or_url):
     is_direct_url = query_or_url.startswith("http")
     is_youtube = ("youtube.com" in query_or_url) or ("youtu.be" in query_or_url) or (not is_direct_url)
     cookie_path = "cookies.txt" if (os.path.exists("cookies.txt") and not is_youtube) else None
-    extractor_args = {'youtube': {'player_client': ['android']}} if is_youtube else {}
+    extractor_args = {
+        'youtube': {
+            'player_client': ['android'],
+            'player_skip': ['webpage', 'configs']
+        }
+    } if is_youtube else {}
 
     meta_info = {}
 
