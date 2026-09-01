@@ -219,35 +219,79 @@ def extract_punchy_title_and_speaker(raw_title, raw_desc, uploader):
     speaker = clean_uploader.split()[0].upper() if clean_uploader else "DEBATE"
     return top_title, speaker
 
-def analyze_video_content(metadata_info, fallback_data, custom_title=None):
+def condense_or_rewrite_if_long(text):
+    """Reescribe o sintetiza la frase si es demasiado larga para entrar holgadamente en 2 líneas."""
+    clean = ' '.join(text.replace('\n', ' ').split())
+    words = clean.split()
+    
+    # Si ya entra perfectamente en 2 líneas (hasta 7 palabras y <= 45 letras), conservarla tal cual
+    if len(words) <= 7 and len(clean) <= 45:
+        return clean
+        
+    print(f"✍️ Texto superior largo ({len(words)} palabras, {len(clean)} letras). Reescribiendo para que encaje...")
+    
+    # 1. Si Gemini está disponible con clave AIza, sintetizarla con IA
+    if GEMINI_API_KEY and GEMINI_API_KEY.startswith("AIza"):
+        try:
+            prompt = f"Reescribe esta frase en un titular muy corto, polémico y con gancho en español de España de MÁXIMO 5-6 PALABRAS en total para un Reel. Devuelve ÚNICAMENTE el titular sin comillas ni explicaciones:\n\n{clean}"
+            response = client.models.generate_content(
+                model="gemini-3.5-flash",
+                contents=prompt
+            )
+            rewritten = response.text.strip().strip('"\'')
+            if rewritten and len(rewritten.split()) <= 7:
+                return rewritten
+        except Exception:
+            pass
+            
+    # 2. Respaldo inteligente: eliminar muletillas y recortar a la idea clave
+    fillers = [
+        r'\bhoy en día\b', r'\ben mi opinión\b', r'\bla verdad es que\b',
+        r'\bcreo que\b', r'\byo creo que\b', r'\bme parece que\b',
+        r'\bes evidente que\b', r'\bcomo todos sabemos\b', r'\bpor otra parte\b',
+        r'\ben este video\b', r'\bvamos a ver\b'
+    ]
+    condensed = clean
+    for f in fillers:
+        condensed = re.sub(f, '', condensed, flags=re.IGNORECASE)
+    condensed = ' '.join(condensed.split())
+    
+    c_words = condensed.split()
+    if len(c_words) > 7:
+        condensed = ' '.join(c_words[:7])
+        
+    return condensed
+
+def analyze_video_content(metadata_info, fallback_data, custom_top=None, custom_bottom=None):
     """Analiza la información del video para generar el titular en 2 líneas y el copy de Instagram."""
     print("🧠 Analizando contenido para redactar titulares fieles...")
     
-    # Si el usuario especificó una descripción o título junto al enlace
-    if custom_title:
-        title_text = custom_title.strip()
-        speaker = metadata_info.get("uploader") or metadata_info.get("channel") or "DEBATE"
+    # Si el usuario especificó arriba y/o abajo explícitamente
+    if custom_top or custom_bottom:
+        formatted_top = None
+        if custom_top:
+            synthesized_top = condense_or_rewrite_if_long(custom_top)
+            formatted_top = format_to_two_lines(synthesized_top)
+            
+        speaker = custom_bottom.strip().upper()[:25] if custom_bottom else None
         
-        # Permitir separar interlocutor y titular con dos puntos o guión:
-        # Ej: "Yolanda Díaz: ¿Reducir jornada a 37 horas?"
-        if ":" in title_text:
-            parts = title_text.split(":", 1)
-            speaker = parts[0].strip().upper()[:20]
-            title_text = parts[1].strip()
-        elif " - " in title_text:
-            parts = title_text.split(" - ", 1)
-            if len(parts[0]) <= 20 and len(parts[1]) > len(parts[0]):
-                speaker = parts[0].strip().upper()
-                title_text = parts[1].strip()
-            else:
-                title_text = parts[0].strip()
-                speaker = parts[1].strip().upper()[:20]
+        # Si falta alguno de los dos campos, extraerlo de los metadatos del video
+        if not formatted_top or not speaker:
+            auto_top, auto_speaker = extract_punchy_title_and_speaker(
+                metadata_info.get("title") or fallback_data.get("top_title"),
+                metadata_info.get("description") or fallback_data.get("caption"),
+                metadata_info.get("uploader") or metadata_info.get("channel") or fallback_data.get("speaker_name")
+            )
+            if not formatted_top:
+                formatted_top = auto_top
+            if not speaker:
+                speaker = auto_speaker
 
-        formatted_title = format_to_two_lines(title_text)
+        clean_top_disp = formatted_top.replace('\n', ' ')
         return {
-            "top_title": formatted_title,
-            "speaker_name": speaker[:20].upper(),
-            "caption": f"🔥 {formatted_title.replace(chr(10), ' ')}\n\n¿Qué opinas sobre este debate? Déjalo en comentarios. 👇\n\n#Debate #España #Viral #Reflexion"
+            "top_title": formatted_top,
+            "speaker_name": speaker,
+            "caption": f"🔥 {clean_top_disp}\n\n¿Qué opinas sobre este debate? Déjalo en comentarios. 👇\n\n#Debate #España #Viral #Reflexion"
         }
 
     real_title = metadata_info.get("title") or fallback_data.get("top_title") or ""
@@ -763,7 +807,7 @@ class SimpleBotContext:
     def __init__(self, bot):
         self.bot = bot
 
-async def process_and_send(chat_id, context, custom_topic=None, direct_url=None, custom_title=None, is_scheduled=False):
+async def process_and_send(chat_id, context, custom_topic=None, direct_url=None, custom_top=None, custom_bottom=None, is_scheduled=False):
     header = "⏰ *[ENVÍO DIARIO PROGRAMADO]*\n\n" if is_scheduled else ""
     msg = await context.bot.send_message(
         chat_id=chat_id,
@@ -807,7 +851,7 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
             f"{header}🧠 *[3/5]* Interpretando contenido del video para redactar titulares fieles..."
         )
 
-        video_data = await asyncio.to_thread(analyze_video_content, meta_info, data, custom_title)
+        video_data = await asyncio.to_thread(analyze_video_content, meta_info, data, custom_top, custom_bottom)
 
         clean_top_title = video_data['top_title'].replace('\n', ' ')
         await update_status(
@@ -903,13 +947,43 @@ async def cmd_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = " ".join(context.args) if context.args else None
     await process_and_send(update.effective_chat.id, context, custom_topic=topic)
 
+def parse_custom_texts(text, target_url=""):
+    """Extrae inteligentemente 'arriba:' y 'abajo:' del mensaje."""
+    clean_text = text.replace(target_url, "").strip()
+    
+    arriba_match = re.search(r'(?i)\barriba\s*:\s*(.*?)(?=\b(?:abajo)\s*:|$)', clean_text, re.DOTALL)
+    abajo_match = re.search(r'(?i)\babajo\s*:\s*(.*?)(?=\b(?:arriba)\s*:|$)', clean_text, re.DOTALL)
+    
+    custom_top = arriba_match.group(1).strip() if arriba_match else None
+    custom_bottom = abajo_match.group(1).strip() if abajo_match else None
+    
+    # Si no usó las etiquetas "arriba:" o "abajo:", pero escribió texto junto al enlace
+    if not custom_top and not custom_bottom and clean_text:
+        if ":" in clean_text:
+            parts = clean_text.split(":", 1)
+            custom_bottom = parts[0].strip()
+            custom_top = parts[1].strip()
+        elif " - " in clean_text:
+            parts = clean_text.split(" - ", 1)
+            if len(parts[0]) <= 20 and len(parts[1]) > len(parts[0]):
+                custom_bottom = parts[0].strip()
+                custom_top = parts[1].strip()
+            else:
+                custom_top = parts[0].strip()
+                custom_bottom = parts[1].strip()
+        else:
+            custom_top = clean_text
+            
+    return custom_top, custom_bottom
+
 async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Uso: `/link https://... [Título opcional]`", parse_mode="Markdown")
+        await update.message.reply_text("Uso: `/link https://... [arriba: ...] [abajo: ...]`", parse_mode="Markdown")
         return
     url = context.args[0]
-    custom_title = " ".join(context.args[1:]) if len(context.args) > 1 else None
-    await process_and_send(update.effective_chat.id, context, direct_url=url, custom_title=custom_title)
+    rest = " ".join(context.args[1:]) if len(context.args) > 1 else ""
+    custom_top, custom_bottom = parse_custom_texts(rest)
+    await process_and_send(update.effective_chat.id, context, direct_url=url, custom_top=custom_top, custom_bottom=custom_bottom)
 
 async def cmd_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.datetime.now().strftime("%H:%M:%S")
@@ -947,9 +1021,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/video [tema]` — Busca y maqueta un clip sobre un tema concreto (ej. `/video pensiones`).\n"
         "• `/cancelar` (o `/abort`) — Cancela inmediatamente la descarga o maquetación en curso.\n"
         "• `/horarios` — Consulta los horarios automáticos de envío diario (12:00, 15:00, 18:00).\n\n"
-        "🔗 *Pegado directo de enlace:*\n"
-        "Puedes simplemente pegar cualquier enlace de TikTok, Instagram Reel o YouTube Shorts en este chat (y opcionalmente escribir un titular o interlocutor detrás) y el bot lo maquetará automáticamente.\n\n"
-        "🛑 Además, mientras se esté procesando cualquier video verás un botón interactivo de *'Cancelar acción'*.",
+        "🔗 *Pegado de enlaces con textos personalizados:*\n"
+        "Puedes pegar cualquier enlace indicando `arriba:` y `abajo:`:\n"
+        "```text\n"
+        "https://... arriba: Frase para arriba abajo: Nombre interlocutor\n"
+        "```\n"
+        "💡 _Si la frase de arriba es demasiado larga, el bot la reescribirá automáticamente para que encaje perfecta en dos líneas._",
         parse_mode="Markdown"
     )
 
@@ -958,13 +1035,17 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     urls = re.findall(r'https?://[^\s]+', text)
     if urls:
         target_url = urls[0]
-        # Si el usuario escribió un titular tras el enlace, usarlo
-        remaining_text = text.replace(target_url, "").strip()
-        custom_title = remaining_text if remaining_text else None
-        await process_and_send(update.effective_chat.id, context, direct_url=target_url, custom_title=custom_title)
+        custom_top, custom_bottom = parse_custom_texts(text, target_url)
+        await process_and_send(update.effective_chat.id, context, direct_url=target_url, custom_top=custom_top, custom_bottom=custom_bottom)
     else:
         await update.message.reply_text(
-            "💡 Envíame un enlace de TikTok, Instagram Reel o YouTube Shorts para maquetarlo (puedes añadir un titular al lado si quieres), o usa el comando /video para generar un debate viral.\n\nPuedes cancelar cualquier acción en curso con /cancelar."
+            "💡 Envíame un enlace de TikTok, Instagram Reel o YouTube Shorts para maquetarlo.\n\n"
+            "📝 *Personalizar textos:*\n"
+            "```text\n"
+            "https://... arriba: Tu titular aquí abajo: Tu personaje\n"
+            "```\n"
+            "*(Si el texto de arriba no entra, se reescribe automáticamente).*",
+            parse_mode="Markdown"
         )
 
 async def post_init(application):
