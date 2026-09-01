@@ -170,11 +170,20 @@ def fetch_trend_data(custom_topic=None):
         }
 
     fallback_topics = [
-        {"search_query": "debate alquiler espana #shorts", "top_title": "¿ALQUILAR ES\nTIRAR EL DINERO?", "speaker_name": "CRISIS VIVIENDA", "caption": "¿Tú qué opinas sobre el precio de la vivienda y el alquiler en España? Déjalo en comentarios. 👇\n\n#Vivienda #Alquiler #España #Debate"},
-        {"search_query": "debate jornada laboral 37 horas espana #shorts", "top_title": "¿REDUCIR JORNADA\nA 37,5 HORAS?", "speaker_name": "DEBATE LABORAL", "caption": "¿Crees que reducir la jornada aumentará la productividad o dañará a las PYMES? Comenta tu opinión. 👇\n\n#Trabajo #Economia #España"},
+        # Reflexiones profundas y filosofía de vida
+        {"search_query": "reflexion sobre la vida espana shorts", "top_title": "¿QUÉ ES LO\nQUE IMPORTA?", "speaker_name": "REFLEXIÓN", "caption": "Una reflexión sincera sobre el tiempo y las cosas a las que dedicamos nuestra energía. ¿Qué opinas? 👇\n\n#Reflexion #Vida #España #Pensamientos"},
+        {"search_query": "reflexion soledad sociedad actual espana shorts", "top_title": "¿CADA VEZ MÁS\nCONECTADOS Y SOLOS?", "speaker_name": "SOCIEDAD", "caption": "Vivimos en la era más hiperconectada de la historia, pero la soledad no deja de crecer. Déjanos tu reflexión. 👇\n\n#Soledad #Sociedad #Reflexion #España"},
+        {"search_query": "reflexion dinero y felicidad espana shorts", "top_title": "¿EL DINERO DA\nLA TRANQUILIDAD?", "speaker_name": "VALORES", "caption": "¿Hasta qué punto el dinero aporta paz mental o se convierte en una obsesión? Cuéntanos tu experiencia. 👇\n\n#Dinero #Exito #Felicidad #Reflexion"},
+        # Opiniones de la gente en la calle
+        {"search_query": "preguntas por la calle espana sueldos shorts", "top_title": "¿CUÁNTO DEBERÍA\nCOBRAR UN JOVEN?", "speaker_name": "LA CALLE OPINA", "caption": "Salimos a la calle para conocer de primera mano la realidad laboral de la gente en España. ¿Qué opinas? 👇\n\n#LaCalleOpina #Sueldos #España #Opinion"},
+        {"search_query": "entrevista calle espana vivienda alquiler shorts", "top_title": "¿ALQUILAR ES\nTIRAR EL DINERO?", "speaker_name": "CRISIS VIVIENDA", "caption": "¿Tú qué opinas sobre los precios del alquiler y la vivienda en España? Déjalo en comentarios. 👇\n\n#Vivienda #Alquiler #España #Debate"},
+        {"search_query": "entrevista calle espana relaciones actuales shorts", "top_title": "¿LAS RELACIONES HOY\nSON MÁS DIFÍCILES?", "speaker_name": "RELACIONES", "caption": "La gente en la calle responde sobre cómo han cambiado el compromiso y los valores hoy en día. ¿Estás de acuerdo? 👇\n\n#Relaciones #Sociedad #Opinion #Espana"},
+        # Debates sociopolíticos
+        {"search_query": "debate jornada laboral 37 horas espana shorts", "top_title": "¿REDUCIR JORNADA\nA 37,5 HORAS?", "speaker_name": "DEBATE LABORAL", "caption": "¿Crees que reducir la jornada aumentará la productividad o dañará a las PYMES? Comenta tu opinión. 👇\n\n#Trabajo #Economia #España"},
         {"search_query": "debate pensiones espana futuro #shorts", "top_title": "¿HABRÁ PENSIONES\nEN EL FUTURO?", "speaker_name": "SISTEMA PENSIONES", "caption": "¿Crees que el sistema de pensiones actual es sostenible para los jóvenes? Deja tu opinión. 👇\n\n#Pensiones #Jubilacion #España"},
-        {"search_query": "debate oposiciones o empresa privada espana #shorts", "top_title": "¿OPOSITAR O\nEMPRENDER?", "speaker_name": "CULTURA LABORAL", "caption": "¿Merece la pena el esfuerzo de opositar en España o es mejor el sector privado? Comenta tu experiencia. 👇\n\n#Oposiciones #España #Empleo"},
-        {"search_query": "debate impuestos espana sueldos #shorts", "top_title": "¿PAGAMOS DEMASIADOS\nIMPUESTOS?", "speaker_name": "FISCALIDAD", "caption": "¿Crees que los impuestos en España se gestionan bien o asfixian a la clase trabajadora? 👇\n\n#Impuestos #Economia #España"}
+        {"search_query": "debate oposiciones o empresa privada espana shorts", "top_title": "¿OPOSITAR O\nEMPRENDER?", "speaker_name": "CULTURA LABORAL", "caption": "¿Merece la pena el esfuerzo de opositar en España o es mejor el sector privado? Comenta tu experiencia. 👇\n\n#Oposiciones #España #Empleo"},
+        # Podcasts y momentos virales
+        {"search_query": "podcast reflexiones espana momentos epicos shorts", "top_title": "¿EL MAYOR ERROR\nDE NUESTRA ÉPOCA?", "speaker_name": "PODCAST", "caption": "Una charla sincera sobre las presiones de nuestra época. ¿Cuál es tu punto de vista? Déjalo abajo. 👇\n\n#Podcast #Reflexion #Espana #Viral"}
     ]
     import random
     return random.choice(fallback_topics)
@@ -212,11 +221,71 @@ def is_uninformative_title(title_text):
     words = [w for w in re.findall(r'\w+', t) if len(w) > 2 and w not in ['video', 'reel', 'clip', 'post', 'shorts', 'tiktok', 'instagram', 'by', 'de', 'del', 'en']]
     return len(words) < 2
 
+def extract_from_description(raw_desc, uploader):
+    """Analiza la descripción del video para extraer preguntas, citas o frases gancho y el interlocutor."""
+    if not raw_desc:
+        return None, None
+        
+    text = str(raw_desc).strip()
+    
+    # 1. Buscar interlocutor o personaje en la descripción
+    speaker = None
+    speaker_patterns = [
+        r'(?i)(?:entrevista|charla|hablando|podcast)\s+(?:con|a)\s+([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?)',
+        r'(?i)(?:invitado|invitada|protagonista)\s*:\s*([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?)',
+        r'(?i)(?:palabras|reflexi[oó]n|opini[oó]n)\s+de\s+([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?)',
+        r'(?i)@([A-Za-z0-9_.]+)\s+(?:opina|habla|reflexiona|cuenta|dice)',
+        r'(?i)^([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\s*[:\-]'
+    ]
+    for sp in speaker_patterns:
+        m = re.search(sp, text)
+        if m:
+            cand = m.group(1).replace('@', '').strip().upper()
+            if 2 <= len(cand) <= 25 and not any(j in cand.lower() for j in ['video', 'shorts', 'reels', 'tiktok', 'instagram']):
+                speaker = cand
+                break
+
+    # 2. Buscar pregunta clave en la descripción (ej: "¿Alquilar es tirar el dinero?")
+    q_match = re.search(r'¿([^?]+)\?', text)
+    if q_match:
+        cand_q = f"¿{q_match.group(1).strip()}?"
+        cand_q = re.sub(r'https?://\S+|[#@]\w+', '', cand_q).strip(' \n\t"\'«»')
+        words = cand_q.split()
+        if 3 <= len(words) <= 12 and not is_uninformative_title(cand_q):
+            return cand_q, speaker
+
+    # 3. Buscar cita textual entre comillas (ej: “El éxito sin paz mental no sirve de nada”)
+    quote_match = re.search(r'["“«]([^"”»]{10,80})["”»]', text)
+    if quote_match:
+        cand_quote = quote_match.group(1).strip()
+        cand_quote = re.sub(r'https?://\S+|[#@]\w+', '', cand_quote).strip(' \n\t"\'«»')
+        words = cand_quote.split()
+        if 3 <= len(words) <= 12 and not is_uninformative_title(cand_quote):
+            return cand_quote, speaker
+
+    # 4. Extraer la primera línea o frase con gancho de la descripción antes de hashtags
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    for line in lines[:3]:
+        clean_l = re.sub(r'https?://\S+|[#@]\w+', '', line).strip(' -_:|"\'“»«')
+        if not clean_l:
+            continue
+        first_sentence = re.split(r'[.!?]', clean_l)[0].strip()
+        words = first_sentence.split()
+        if 3 <= len(words) <= 10 and not is_uninformative_title(first_sentence):
+            return first_sentence, speaker
+
+    return None, speaker
+
 def extract_punchy_title_and_speaker(raw_title, raw_desc, uploader):
-    """Extrae un titular con sentido completo a partir del título real del video."""
+    """Extrae un titular con sentido completo y el interlocutor a partir del título y la descripción del video."""
+    # Primero intentar extraer la mejor pregunta, cita o reflexión de la descripción
+    desc_title, desc_speaker = extract_from_description(raw_desc, uploader)
+
     t = str(raw_title or "").strip()
-    if is_uninformative_title(t):
-        t = str(raw_desc or "").strip()
+    
+    # Si el título del video es genérico, basura ("Video by...") o no existe, priorizar la descripción
+    if is_uninformative_title(t) and desc_title:
+        t = desc_title
 
     # Eliminar URLs, menciones y hashtags
     t = re.sub(r'https?://\S+', '', t)
@@ -230,13 +299,19 @@ def extract_punchy_title_and_speaker(raw_title, raw_desc, uploader):
     
     t = ' '.join(t.split()).strip('-_: ')
     
-    clean_uploader = (uploader or "").strip()
-    clean_uploader = re.sub(r'[@_]', ' ', clean_uploader).strip()
-    speaker = clean_uploader.split()[0].upper() if clean_uploader else "DEBATE"
+    # Determinar el interlocutor para la barra inferior
+    speaker = desc_speaker
+    if not speaker:
+        clean_uploader = (uploader or "").strip()
+        clean_uploader = re.sub(r'[@_]', ' ', clean_uploader).strip()
+        speaker = clean_uploader.split()[0].upper() if clean_uploader else "REFLEXIÓN"
 
-    # Si tras limpiar sigue careciendo de contexto, devolver None para preguntar al usuario
+    # Si tras limpiar sigue careciendo de contexto, intentar una última vez con la descripción
     if is_uninformative_title(t):
-        return None, speaker
+        if desc_title:
+            t = desc_title
+        else:
+            return None, speaker
 
     top_title = format_to_two_lines(t)
     return top_title, speaker
@@ -374,8 +449,9 @@ Devuelve ÚNICAMENTE un objeto JSON:
     }
 
 def clean_search_query(q):
-    words = [w for w in re.split(r'\s+', q.strip()) if w.lower() not in ['tiktok', 'instagram', 'reels', 'clip', 'video', 'shorts']]
-    core = " ".join(words[:4])
+    # Conservar 'reels', 'opinion', 'reflexion', 'calle' si el usuario los incluyó
+    words = [w for w in re.split(r'\s+', q.strip()) if w.lower() not in ['tiktok', 'clip', 'video', 'shorts']]
+    core = " ".join(words[:5])
     if "espana" not in core.lower() and "españa" not in core.lower():
         core = f"{core} espana"
     return f"{core} #shorts"
@@ -387,12 +463,16 @@ def duration_filter(info_dict, *, incomplete):
     return None
 
 GUARANTEED_FALLBACK_QUERIES = [
+    "reflexion sobre la vida espana shorts",
+    "preguntas por la calle espana shorts",
+    "entrevista callejera espana shorts",
+    "reflexion soledad sociedad actual espana shorts",
+    "reels reflexiones virales espana shorts",
+    "opinion de la gente espana shorts",
+    "microfono en la calle espana shorts",
     "debate espana shorts",
-    "entrevista calle espana shorts",
-    "polemica espana shorts",
     "alquiler jovenes espana shorts",
-    "cultura esfuerzo espana shorts",
-    "politicos debate espana shorts"
+    "podcast reflexiones espana shorts"
 ]
 
 def download_clip(query_or_url):
