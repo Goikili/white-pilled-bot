@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.mp4
+*.part
+*.temp
+raw_temp*
+final_reel*
+.env
