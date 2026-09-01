@@ -78,6 +78,9 @@ if sys.platform == "win32":
         from moviepy.config import change_settings
         change_settings({"IMAGEMAGICK_BINARY": magick_path})
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import numpy as np
 import yt_dlp
 from google import genai
@@ -87,7 +90,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ================= CONFIGURACIÓN =================
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6LY_aEHSb8Hxj8jzdwLUCHNJB5-qN5remU3zOpGDSUfWw")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8941001365:AAHNVirChTB66xlkSF1PUdsCmdNkM80rfKU")
 TELEGRAM_CHAT_ID = int(os.environ.get("TELEGRAM_CHAT_ID", "6256580462"))
 
@@ -109,7 +112,7 @@ FONT_NAME = LOCAL_FONT_FILE if os.path.exists(LOCAL_FONT_FILE) else "Franklin-Go
 GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"]
 # =================================================
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 SYSTEM_PROMPT = """
 You are a political and social debate trend curator for a critical reflection Instagram account focused on SPAIN.
@@ -337,20 +340,21 @@ Devuelve ÚNICAMENTE un objeto JSON:
   "caption": "Copy completo..."
 }}
 """
-    for model_name in GEMINI_MODELS:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=analysis_prompt,
-                config=types.GenerateContentConfig(response_mime_type="application/json")
-            )
-            parsed = parse_json_response(response.text)
-            top_t = parsed.get("top_title")
-            if top_t and not is_uninformative_title(top_t):
-                print(f"✅ Titular generado con IA: {top_t}")
-                return parsed
-        except Exception:
-            pass
+    if client:
+        for model_name in GEMINI_MODELS:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=analysis_prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                )
+                parsed = parse_json_response(response.text)
+                top_t = parsed.get("top_title")
+                if top_t and not is_uninformative_title(top_t):
+                    print(f"✅ Titular generado con IA: {top_t}")
+                    return parsed
+            except Exception:
+                pass
 
     # 2. Extracción inteligente de la metadata real del video
     punchy_title, speaker = extract_punchy_title_and_speaker(real_title, real_desc, real_uploader)
