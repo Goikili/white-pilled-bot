@@ -267,9 +267,18 @@ def clean_search_query(q):
 
 def duration_filter(info_dict, *, incomplete):
     dur = info_dict.get('duration')
-    if dur is not None and (dur > 90 or dur < 5):
-        return f"Video duration {dur}s not in [5, 90]"
+    if dur is not None and (dur > 200 or dur < 5):
+        return f"Video duration {dur}s not in [5, 200]"
     return None
+
+GUARANTEED_FALLBACK_QUERIES = [
+    "debate espana shorts",
+    "entrevista calle espana shorts",
+    "polemica espana shorts",
+    "alquiler jovenes espana shorts",
+    "cultura esfuerzo espana shorts",
+    "politicos debate espana shorts"
+]
 
 def download_clip(query_or_url):
     unique_id = f"{int(time.time())}_{uuid.uuid4().hex[:6]}"
@@ -279,7 +288,7 @@ def download_clip(query_or_url):
     is_direct_url = query_or_url.startswith("http")
     is_youtube = ("youtube.com" in query_or_url) or ("youtu.be" in query_or_url) or (not is_direct_url)
     cookie_path = "cookies.txt" if (os.path.exists("cookies.txt") and not is_youtube) else None
-    extractor_args = {'youtube': {'player_client': ['android']}} if is_youtube else {}
+    extractor_args = {'youtube': {'player_client': ['android', 'web']}} if is_youtube else {}
 
     meta_info = {}
 
@@ -300,10 +309,7 @@ def download_clip(query_or_url):
             raise RuntimeError(f"No se pudo descargar el video desde la URL: {query_or_url}")
         return output_file, meta_info
 
-    # Caso 2: Búsqueda inteligente de Shorts en España (<90s)
-    clean_q = clean_search_query(query_or_url)
-    print(f"🎯 Búsqueda optimizada para Shorts (España): '{clean_q}'")
-
+    # Caso 2: Búsqueda inteligente imparable de videos
     opts_search = {
         'format': 'bestvideo*+bestaudio/best',
         'merge_output_format': 'mp4',
@@ -315,6 +321,9 @@ def download_clip(query_or_url):
         'no_warnings': True
     }
 
+    # 1. Probar la consulta original adaptada
+    clean_q = clean_search_query(query_or_url)
+    print(f"🎯 Intento 1: Búsqueda para '{clean_q}'...")
     try:
         with yt_dlp.YoutubeDL(opts_search) as ydl:
             search_res = ydl.extract_info(f"ytsearch15:{clean_q}", download=True)
@@ -323,13 +332,13 @@ def download_clip(query_or_url):
     except yt_dlp.utils.MaxDownloadsReached:
         pass
     except Exception as e:
-        print(f"⚠️ Nota en búsqueda: {e}")
+        print(f"⚠️ Nota en intento 1: {e}")
 
-    # Fallback si no se encontró en la primera pasada
+    # 2. Si no descargó, probar búsqueda simplificada con 'debate shorts'
     if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-        words = re.findall(r'\w+', query_or_url)
-        alt_q = " ".join([w for w in words if w.lower() not in ['shorts', 'tiktok', 'debate']][:3]) + " debate espana shorts"
-        print(f"🔄 Reintentando con consulta alternativa: '{alt_q}'...")
+        words = [w for w in re.findall(r'\w+', query_or_url) if w.lower() not in ['shorts', 'tiktok', 'debate', 'espana']]
+        alt_q = f"{' '.join(words[:2])} debate espana shorts"
+        print(f"🔄 Intento 2: Búsqueda simplificada: '{alt_q}'...")
         try:
             with yt_dlp.YoutubeDL(opts_search) as ydl:
                 search_res = ydl.extract_info(f"ytsearch15:{alt_q}", download=True)
@@ -338,10 +347,50 @@ def download_clip(query_or_url):
         except yt_dlp.utils.MaxDownloadsReached:
             pass
         except Exception as e:
-            print(f"⚠️ Nota en reintento: {e}")
+            print(f"⚠️ Nota en intento 2: {e}")
+
+    # 3. Si aún no hay video, recorrer la lista de temas virales garantizados de España
+    if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+        for fallback_q in GUARANTEED_FALLBACK_QUERIES:
+            print(f"🔥 Intento garantizado: '{fallback_q}'...")
+            try:
+                with yt_dlp.YoutubeDL(opts_search) as ydl:
+                    search_res = ydl.extract_info(f"ytsearch15:{fallback_q}", download=True)
+                    if search_res and 'entries' in search_res and search_res['entries']:
+                        meta_info = search_res['entries'][0] or {}
+            except yt_dlp.utils.MaxDownloadsReached:
+                pass
+            except Exception as e:
+                print(f"⚠️ Nota en fallback: {e}")
+
+            if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                print(f"✅ Video encontrado y descargado con éxito desde '{fallback_q}'!")
+                break
+
+    # 4. Último recurso absoluto: descargar cualquier clip corto de debate sin filtro de duración
+    if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+        print("🚨 Último recurso: Descargando clip sin restricción de filtro...")
+        opts_relaxed = {
+            'format': 'bestvideo*+bestaudio/best',
+            'merge_output_format': 'mp4',
+            'outtmpl': output_file,
+            'extractor_args': extractor_args,
+            'max_downloads': 1,
+            'quiet': True,
+            'no_warnings': True
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts_relaxed) as ydl:
+                search_res = ydl.extract_info("ytsearch5:debate espana shorts", download=True)
+                if search_res and 'entries' in search_res and search_res['entries']:
+                    meta_info = search_res['entries'][0] or {}
+        except yt_dlp.utils.MaxDownloadsReached:
+            pass
+        except Exception as e:
+            print(f"⚠️ Nota en último recurso: {e}")
 
     if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-        raise RuntimeError(f"No se pudo descargar ningún video corto (<90s) para la búsqueda: '{query_or_url}'")
+        raise RuntimeError("No se pudo descargar ningún video tras agotar todas las fuentes.")
 
     return output_file, meta_info
 
