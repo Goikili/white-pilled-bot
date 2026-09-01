@@ -116,7 +116,6 @@ def fetch_trend_data(custom_topic=None):
                 time.sleep(1)
                 continue
 
-    # Fallback predeterminado si no hay cuota de Gemini
     fallback_topics = [
         {"search_query": "debate alquiler espana #shorts", "top_title": "¿ALQUILAR ES\nTIRAR EL DINERO?", "speaker_name": "CRISIS VIVIENDA", "caption": "¿Tú qué opinas sobre el precio del alquiler en España? Déjalo en comentarios. 👇\n\n#Vivienda #Alquiler #España #Debate"},
         {"search_query": "debate jornada laboral 37 horas espana #shorts", "top_title": "¿REDUCIR JORNADA\nA 37,5 HORAS?", "speaker_name": "DEBATE LABORAL", "caption": "¿Crees que reducir la jornada aumentará la productividad o dañará a las PYMES? Comenta tu opinión. 👇\n\n#Trabajo #Economia #España"}
@@ -135,25 +134,56 @@ def parse_json_response(raw_text):
     return json.loads(text.strip())
 
 def clean_text_for_title(t):
-    # Eliminar emojis y caracteres extraños
     clean = re.sub(r'[^\w\s¿?¡!ÁÉÍÓÚáéíóúÑñ]', '', t).strip()
     return clean
 
-def analyze_video_content(video_path, metadata_info, fallback_data):
-    """Analiza el video con Gemini si hay clave válida, o genera textos adaptados de la metadata real."""
+def extract_punchy_title_and_speaker(raw_title, raw_desc, uploader):
+    """Extrae inteligentemente un titular en 2 líneas y el interlocutor a partir del texto real del video."""
+    full_text = str(raw_title or "") + " " + str(raw_desc or "")
+    full_text = re.sub(r'https?://\S+', '', full_text)
+    full_text = re.sub(r'[#@]\w+', '', full_text)
+    clean = re.sub(r'[^\w\s¿?¡!ÁÉÍÓÚáéíóúÑñ]', ' ', full_text)
+    words = [w for w in clean.split() if len(w) > 2 and w.lower() not in [
+        'para', 'este', 'esta', 'estos', 'estas', 'como', 'pero', 'todo', 'todos', 'video', 'tiktok', 'reel', 'reels', 'shorts', 'youtube'
+    ]]
+    
+    if len(words) >= 4:
+        title_words = words[:5]
+        mid = (len(title_words) + 1) // 2
+        top_title = f"{' '.join(title_words[:mid])}\n{' '.join(title_words[mid:])}".upper()
+    elif words:
+        top_title = " ".join(words).upper()
+    else:
+        top_title = "DEBATE SOCIAL\nEN ESPAÑA"
+
+    clean_uploader = (uploader or "").strip()
+    clean_uploader = re.sub(r'[@_]', ' ', clean_uploader).strip()
+    speaker = clean_uploader.split()[0].upper() if clean_uploader else "DEBATE"
+    return top_title, speaker
+
+def analyze_video_content(metadata_info, fallback_data, custom_title=None):
+    """Analiza la información del video para generar el titular en 2 líneas y el copy de Instagram."""
     print("🧠 Analizando contenido para redactar titulares fieles...")
     
-    # Extraer información real descargada por yt-dlp
-    real_title = metadata_info.get("title") or fallback_data.get("top_title") or "DEBATE VIRAL"
+    # Si el usuario especificó un título junto al enlace
+    if custom_title:
+        formatted_title = format_to_two_lines(custom_title)
+        return {
+            "top_title": formatted_title,
+            "speaker_name": metadata_info.get("uploader", "DEBATE")[:20].upper(),
+            "caption": f"🔥 {formatted_title.replace(chr(10), ' ')}\n\n¿Qué opinas sobre este debate? Déjalo en comentarios. 👇\n\n#Debate #España #Viral"
+        }
+
+    real_title = metadata_info.get("title") or fallback_data.get("top_title") or ""
     real_uploader = metadata_info.get("uploader") or metadata_info.get("channel") or fallback_data.get("speaker_name") or "DEBATE"
     real_desc = metadata_info.get("description") or fallback_data.get("caption") or ""
 
-    # 1. Intentar consultar a Gemini con el contexto del título y descripción del video
+    # 1. Intentar con IA de Gemini
     analysis_prompt = f"""
 Eres editor de una cuenta viral de Instagram Reels de reflexión sociopolítica en España.
-Un usuario ha compartido este clip:
-Título original: "{real_title}"
-Autor/Canal: "{real_uploader}"
+Clip compartido:
+Título: "{real_title}"
+Autor: "{real_uploader}"
 Descripción: "{real_desc[:400]}"
 
 Tu tarea:
@@ -168,7 +198,7 @@ Devuelve ÚNICAMENTE un objeto JSON:
   "caption": "Copy completo..."
 }}
 """
-    for model_name in ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"]:
+    for model_name in GEMINI_MODELS:
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -179,15 +209,16 @@ Devuelve ÚNICAMENTE un objeto JSON:
             if parsed.get("top_title"):
                 print(f"✅ Titular generado con IA: {parsed.get('top_title')}")
                 return parsed
-        except Exception as e:
-            print(f"⚠️ Nota con IA ({e}), pasando al siguiente fallback...")
+        except Exception:
+            pass
 
-    # 2. Fallback inteligente utilizando la metadata real del clip
-    formatted_title = format_to_two_lines(clean_text_for_title(real_title))
+    # 2. Extracción inteligente de la metadata real del video
+    punchy_title, speaker = extract_punchy_title_and_speaker(real_title, real_desc, real_uploader)
+    display_title = format_to_two_lines(punchy_title)
     return {
-        "top_title": formatted_title,
-        "speaker_name": real_uploader[:25].upper(),
-        "caption": f"🔥 {real_title}\n\n¿Qué opinas sobre este debate? Déjanos tu opinión en los comentarios. 👇\n\n#Debate #España #Viral #Opinion"
+        "top_title": display_title,
+        "speaker_name": speaker,
+        "caption": f"🔥 {display_title.replace(chr(10), ' ')}\n\n¿Qué opinas sobre este tema? Déjanos tu reflexión en los comentarios. 👇\n\n#Debate #España #Viral #Opinion"
     }
 
 def clean_search_query(q):
@@ -282,7 +313,6 @@ def format_to_two_lines(text):
     words = [w for w in text.replace('\n', ' ').split() if w]
     if len(words) <= 2:
         return " ".join(words)
-    # Limitar a máximo 7 palabras
     words = words[:7]
     mid = (len(words) + 1) // 2
     return f"{' '.join(words[:mid])}\n{' '.join(words[mid:])}"
@@ -327,21 +357,16 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
 
     clip = VideoFileClip(raw_path).fx(vfx.blackwhite)
 
-    # Limitar duración a 75 segundos máximo para formato Reel
     MAX_DURATION = 75
     if clip.duration > MAX_DURATION:
         print(f"✂️ Acortando clip de {clip.duration:.1f}s a {MAX_DURATION}s para formato Reel...")
         clip = clip.subclip(0, MAX_DURATION)
 
     target_w, target_h = 1080, 1920
-
-    # ================= ENCUADRE INTELIGENTE (VERTICAL VS HORIZONTAL) =================
-    # La ventana disponible entre los textos superior e inferior es de aprox. 1050px
     MAX_WINDOW_H = 1050
 
     if clip.w < clip.h:
         # CASO VIDEO VERTICAL (Reels de Instagram / TikToks / Shorts 9:16)
-        # Escalamos al ancho completo 1080 y recortamos la altura para que el interlocutor quede bien visible
         scale = target_w / clip.w
         scaled_w = target_w
         scaled_h = int(clip.h * scale)
@@ -349,7 +374,7 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
 
         if scaled_h > MAX_WINDOW_H:
             excess_h = scaled_h - MAX_WINDOW_H
-            # En videos verticales, el rostro y pecho suelen ubicarse en el tercio superior
+            # Centrar en el rostro/pecho del interlocutor en el tercio superior
             crop_y1 = int(excess_h * 0.22)
             main_video = (
                 clip_scaled
@@ -363,8 +388,7 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
             video_h = scaled_h
             video_w = scaled_w
     else:
-        # CASO VIDEO HORIZONTAL (16:9 panorámico)
-        # Ampliación uniforme del 16% para que se vea más grande sin perder calidad
+        # CASO VIDEO HORIZONTAL (16:9)
         base_scale = target_w / clip.w
         enlarge_factor = 1.16
         video_w = int(clip.w * base_scale * enlarge_factor)
@@ -382,7 +406,7 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
     # Fondo negro
     background = ColorClip(size=(target_w, target_h), color=(0, 0, 0)).set_duration(clip.duration)
 
-    # 1. TEXTO SUPERIOR ESTRICTAMENTE EN 2 LÍNEAS (Dinámico según el espacio libre)
+    # 1. TEXTO SUPERIOR ESTRICTAMENTE EN 2 LÍNEAS (Dinámico según espacio del video)
     top_margin = 75
     bottom_limit = video_y_start - 20
     available_top_h = max(60, bottom_limit - top_margin)
@@ -405,7 +429,7 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
         .set_duration(clip.duration)
     )
 
-    # 2. BARRA DE PROGRESO AL FONDO (Pegada a abajo, ancho completo 1080px, 88px de alto)
+    # 2. BARRA DE PROGRESO AL FONDO (Pegada a abajo, ancho 1080px, 88px de alto)
     bar_height = 88
     bar_total_w = target_w
     bar_y = target_h - bar_height
@@ -492,7 +516,7 @@ class SimpleBotContext:
     def __init__(self, bot):
         self.bot = bot
 
-async def process_and_send(chat_id, context, custom_topic=None, direct_url=None, is_scheduled=False):
+async def process_and_send(chat_id, context, custom_topic=None, direct_url=None, custom_title=None, is_scheduled=False):
     header = "⏰ *[ENVÍO DIARIO PROGRAMADO]*\n\n" if is_scheduled else ""
     msg = await context.bot.send_message(
         chat_id=chat_id,
@@ -521,15 +545,15 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
 
         await update_status(
             msg,
-            f"{header}🧠 *[3/5]* Analizando contenido para redactar titulares fieles..."
+            f"{header}🧠 *[3/5]* Interpretando contenido del video para redactar titulares fieles..."
         )
 
-        video_data = await asyncio.to_thread(analyze_video_content, raw_clip, meta_info, data)
+        video_data = await asyncio.to_thread(analyze_video_content, meta_info, data, custom_title)
 
         clean_top_title = video_data['top_title'].replace('\n', ' ')
         await update_status(
             msg,
-            f"{header}🎬 *[4/5]* Maquetando video:\n*{clean_top_title}*\n\n_Encuadrando interlocutor, aplicando B/N y barra completa al fondo..._"
+            f"{header}🎬 *[4/5]* Maquetando video:\n*{clean_top_title}*\n\n_Encuadrando interlocutor vertical, aplicando B/N y barra completa al fondo..._"
         )
 
         final_video = await asyncio.to_thread(
@@ -605,9 +629,11 @@ async def cmd_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Uso: `/link https://...`", parse_mode="Markdown")
+        await update.message.reply_text("Uso: `/link https://... [Título opcional]`", parse_mode="Markdown")
         return
-    await process_and_send(update.effective_chat.id, context, direct_url=context.args[0])
+    url = context.args[0]
+    custom_title = " ".join(context.args[1:]) if len(context.args) > 1 else None
+    await process_and_send(update.effective_chat.id, context, direct_url=url, custom_title=custom_title)
 
 async def cmd_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.datetime.now().strftime("%H:%M:%S")
@@ -628,7 +654,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/video [tema]` — Busca y maqueta un clip sobre un tema concreto (ej. `/video pensiones`).\n"
         "• `/horarios` — Consulta los horarios automáticos de envío diario (12:00, 15:00, 18:00).\n\n"
         "🔗 *Pegado directo de enlace:*\n"
-        "Puedes simplemente pegar cualquier enlace de TikTok, Instagram Reel o YouTube Shorts en este chat y el bot lo maquetará automáticamente.",
+        "Puedes simplemente pegar cualquier enlace de TikTok, Instagram Reel o YouTube Shorts en este chat (y opcionalmente escribir un titular detrás) y el bot lo maquetará automáticamente.",
         parse_mode="Markdown"
     )
 
@@ -637,10 +663,13 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     urls = re.findall(r'https?://[^\s]+', text)
     if urls:
         target_url = urls[0]
-        await process_and_send(update.effective_chat.id, context, direct_url=target_url)
+        # Si el usuario escribió un titular tras el enlace, usarlo
+        remaining_text = text.replace(target_url, "").strip()
+        custom_title = remaining_text if remaining_text else None
+        await process_and_send(update.effective_chat.id, context, direct_url=target_url, custom_title=custom_title)
     else:
         await update.message.reply_text(
-            "💡 Envíame un enlace de TikTok, Instagram Reel o YouTube Shorts para maquetarlo, o usa el comando /video para generar un debate viral de hoy."
+            "💡 Envíame un enlace de TikTok, Instagram Reel o YouTube Shorts para maquetarlo (puedes añadir un titular al lado si quieres), o usa el comando /video para generar un debate viral."
         )
 
 async def post_init(application):

@@ -11,10 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Eliminar todas las restricciones de seguridad de ImageMagick para MoviePy
-RUN sed -i 's/rights="none" pattern="@\*"/rights="read|write" pattern="@\*"/g' /etc/ImageMagick*/*.xml 2>/dev/null || true && \
-    sed -i '/pattern="@\*"/d' /etc/ImageMagick*/*.xml 2>/dev/null || true && \
-    sed -i 's/<policy domain="coder" rights="none" pattern="MVG" \/>/<policy domain="coder" rights="read|write" pattern="MVG" \/>/g' /etc/ImageMagick*/*.xml 2>/dev/null || true
+# Desbloquear COMPLETAMENTE la política de seguridad de ImageMagick para MoviePy
+RUN rm -f /etc/ImageMagick-6/policy.xml /etc/ImageMagick-7/policy.xml /etc/ImageMagick/policy.xml && \
+    mkdir -p /etc/ImageMagick-6 /etc/ImageMagick-7 && \
+    echo '<policymap><policy domain="path" rights="read|write" pattern="@*"/><policy domain="resource" name="disk" value="10GiB"/></policymap>' | tee /etc/ImageMagick-6/policy.xml /etc/ImageMagick-7/policy.xml
 
 WORKDIR /app
 
