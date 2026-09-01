@@ -171,19 +171,19 @@ def fetch_trend_data(custom_topic=None):
 
     fallback_topics = [
         # Reflexiones profundas y filosofía de vida
-        {"search_query": "reflexion sobre la vida espana shorts", "top_title": "¿QUÉ ES LO\nQUE IMPORTA?", "speaker_name": "REFLEXIÓN", "caption": "Una reflexión sincera sobre el tiempo y las cosas a las que dedicamos nuestra energía. ¿Qué opinas? 👇\n\n#Reflexion #Vida #España #Pensamientos"},
-        {"search_query": "reflexion soledad sociedad actual espana shorts", "top_title": "¿CADA VEZ MÁS\nCONECTADOS Y SOLOS?", "speaker_name": "SOCIEDAD", "caption": "Vivimos en la era más hiperconectada de la historia, pero la soledad no deja de crecer. Déjanos tu reflexión. 👇\n\n#Soledad #Sociedad #Reflexion #España"},
-        {"search_query": "reflexion dinero y felicidad espana shorts", "top_title": "¿EL DINERO DA\nLA TRANQUILIDAD?", "speaker_name": "VALORES", "caption": "¿Hasta qué punto el dinero aporta paz mental o se convierte en una obsesión? Cuéntanos tu experiencia. 👇\n\n#Dinero #Exito #Felicidad #Reflexion"},
+        {"search_query": "instagram reel reflexion sobre la vida espana shorts", "top_title": "¿QUÉ ES LO\nQUE IMPORTA?", "speaker_name": "REFLEXIÓN", "caption": "Una reflexión sincera sobre el tiempo y las cosas a las que dedicamos nuestra energía. ¿Qué opinas? 👇\n\n#Reflexion #Vida #España #Pensamientos"},
+        {"search_query": "instagram reel reflexion soledad sociedad actual espana shorts", "top_title": "¿CADA VEZ MÁS\nCONECTADOS Y SOLOS?", "speaker_name": "SOCIEDAD", "caption": "Vivimos en la era más hiperconectada de la historia, pero la soledad no deja de crecer. Déjanos tu reflexión. 👇\n\n#Soledad #Sociedad #Reflexion #España"},
+        {"search_query": "instagram reel reflexion dinero y felicidad espana shorts", "top_title": "¿EL DINERO DA\nLA TRANQUILIDAD?", "speaker_name": "VALORES", "caption": "¿Hasta qué punto el dinero aporta paz mental o se convierte en una obsesión? Cuéntanos tu experiencia. 👇\n\n#Dinero #Exito #Felicidad #Reflexion"},
         # Opiniones de la gente en la calle
-        {"search_query": "preguntas por la calle espana sueldos shorts", "top_title": "¿CUÁNTO DEBERÍA\nCOBRAR UN JOVEN?", "speaker_name": "LA CALLE OPINA", "caption": "Salimos a la calle para conocer de primera mano la realidad laboral de la gente en España. ¿Qué opinas? 👇\n\n#LaCalleOpina #Sueldos #España #Opinion"},
-        {"search_query": "entrevista calle espana vivienda alquiler shorts", "top_title": "¿ALQUILAR ES\nTIRAR EL DINERO?", "speaker_name": "CRISIS VIVIENDA", "caption": "¿Tú qué opinas sobre los precios del alquiler y la vivienda en España? Déjalo en comentarios. 👇\n\n#Vivienda #Alquiler #España #Debate"},
-        {"search_query": "entrevista calle espana relaciones actuales shorts", "top_title": "¿LAS RELACIONES HOY\nSON MÁS DIFÍCILES?", "speaker_name": "RELACIONES", "caption": "La gente en la calle responde sobre cómo han cambiado el compromiso y los valores hoy en día. ¿Estás de acuerdo? 👇\n\n#Relaciones #Sociedad #Opinion #Espana"},
+        {"search_query": "instagram reel preguntas por la calle espana sueldos shorts", "top_title": "¿CUÁNTO DEBERÍA\nCOBRAR UN JOVEN?", "speaker_name": "LA CALLE OPINA", "caption": "Salimos a la calle para conocer de primera mano la realidad laboral de la gente en España. ¿Qué opinas? 👇\n\n#LaCalleOpina #Sueldos #España #Opinion"},
+        {"search_query": "instagram reel entrevista calle espana vivienda alquiler shorts", "top_title": "¿ALQUILAR ES\nTIRAR EL DINERO?", "speaker_name": "CRISIS VIVIENDA", "caption": "¿Tú qué opinas sobre los precios del alquiler y la vivienda en España? Déjalo en comentarios. 👇\n\n#Vivienda #Alquiler #España #Debate"},
+        {"search_query": "instagram reel entrevista calle espana relaciones actuales shorts", "top_title": "¿LAS RELACIONES HOY\nSON MÁS DIFÍCILES?", "speaker_name": "RELACIONES", "caption": "La gente en la calle responde sobre cómo han cambiado el compromiso y los valores hoy en día. ¿Estás de acuerdo? 👇\n\n#Relaciones #Sociedad #Opinion #Espana"},
         # Debates sociopolíticos
-        {"search_query": "debate jornada laboral 37 horas espana shorts", "top_title": "¿REDUCIR JORNADA\nA 37,5 HORAS?", "speaker_name": "DEBATE LABORAL", "caption": "¿Crees que reducir la jornada aumentará la productividad o dañará a las PYMES? Comenta tu opinión. 👇\n\n#Trabajo #Economia #España"},
-        {"search_query": "debate pensiones espana futuro #shorts", "top_title": "¿HABRÁ PENSIONES\nEN EL FUTURO?", "speaker_name": "SISTEMA PENSIONES", "caption": "¿Crees que el sistema de pensiones actual es sostenible para los jóvenes? Deja tu opinión. 👇\n\n#Pensiones #Jubilacion #España"},
-        {"search_query": "debate oposiciones o empresa privada espana shorts", "top_title": "¿OPOSITAR O\nEMPRENDER?", "speaker_name": "CULTURA LABORAL", "caption": "¿Merece la pena el esfuerzo de opositar en España o es mejor el sector privado? Comenta tu experiencia. 👇\n\n#Oposiciones #España #Empleo"},
+        {"search_query": "instagram reel debate jornada laboral 37 horas espana shorts", "top_title": "¿REDUCIR JORNADA\nA 37,5 HORAS?", "speaker_name": "DEBATE LABORAL", "caption": "¿Crees que reducir la jornada aumentará la productividad o dañará a las PYMES? Comenta tu opinión. 👇\n\n#Trabajo #Economia #España"},
+        {"search_query": "instagram reel debate pensiones espana futuro shorts", "top_title": "¿HABRÁ PENSIONES\nEN EL FUTURO?", "speaker_name": "SISTEMA PENSIONES", "caption": "¿Crees que el sistema de pensiones actual es sostenible para los jóvenes? Deja tu opinión. 👇\n\n#Pensiones #Jubilacion #España"},
+        {"search_query": "instagram reel debate oposiciones o empresa privada espana shorts", "top_title": "¿OPOSITAR O\nEMPRENDER?", "speaker_name": "CULTURA LABORAL", "caption": "¿Merece la pena el esfuerzo de opositar en España o es mejor el sector privado? Comenta tu experiencia. 👇\n\n#Oposiciones #España #Empleo"},
         # Podcasts y momentos virales
-        {"search_query": "podcast reflexiones espana momentos epicos shorts", "top_title": "¿EL MAYOR ERROR\nDE NUESTRA ÉPOCA?", "speaker_name": "PODCAST", "caption": "Una charla sincera sobre las presiones de nuestra época. ¿Cuál es tu punto de vista? Déjalo abajo. 👇\n\n#Podcast #Reflexion #Espana #Viral"}
+        {"search_query": "instagram reel podcast reflexiones espana momentos epicos shorts", "top_title": "¿EL MAYOR ERROR\nDE NUESTRA ÉPOCA?", "speaker_name": "PODCAST", "caption": "Una charla sincera sobre las presiones de nuestra época. ¿Cuál es tu punto de vista? Déjalo abajo. 👇\n\n#Podcast #Reflexion #Espana #Viral"}
     ]
     import random
     return random.choice(fallback_topics)
@@ -449,30 +449,45 @@ Devuelve ÚNICAMENTE un objeto JSON:
     }
 
 def clean_search_query(q):
-    # Conservar 'reels', 'opinion', 'reflexion', 'calle' si el usuario los incluyó
     words = [w for w in re.split(r'\s+', q.strip()) if w.lower() not in ['tiktok', 'clip', 'video', 'shorts']]
     core = " ".join(words[:5])
     if "espana" not in core.lower() and "españa" not in core.lower():
         core = f"{core} espana"
+    # Priorizar Instagram Reels como fuente primaria de búsqueda
+    if "instagram" not in core.lower() and "reel" not in core.lower():
+        core = f"instagram reel {core}"
     return f"{core} #shorts"
 
-def duration_filter(info_dict, *, incomplete):
+def duration_and_year_filter(info_dict, *, incomplete):
+    # 1. Duración adecuada para formato vertical corto (5s - 200s)
     dur = info_dict.get('duration')
     if dur is not None and (dur > 200 or dur < 5):
         return f"Video duration {dur}s not in [5, 200]"
+
+    # 2. Filtrar fecha: ESTRICTAMENTE a partir de 2020 (rechazar todo lo anterior)
+    upload_date = str(info_dict.get('upload_date') or "")
+    if upload_date and len(upload_date) >= 4 and upload_date[:4].isdigit():
+        year = int(upload_date[:4])
+        if year < 2020:
+            return f"Video de {year} es anterior a 2020 (rechazado)"
+
+    release_year = info_dict.get('release_year')
+    if release_year and int(release_year) < 2020:
+        return f"Año {release_year} es anterior a 2020 (rechazado)"
+
     return None
 
 GUARANTEED_FALLBACK_QUERIES = [
-    "reflexion sobre la vida espana shorts",
-    "preguntas por la calle espana shorts",
-    "entrevista callejera espana shorts",
-    "reflexion soledad sociedad actual espana shorts",
-    "reels reflexiones virales espana shorts",
-    "opinion de la gente espana shorts",
-    "microfono en la calle espana shorts",
-    "debate espana shorts",
-    "alquiler jovenes espana shorts",
-    "podcast reflexiones espana shorts"
+    "instagram reel reflexion sobre la vida espana shorts",
+    "instagram reels preguntas por la calle espana shorts",
+    "instagram reel entrevista callejera espana shorts",
+    "instagram reel reflexion soledad sociedad actual espana shorts",
+    "instagram reels virales espana reflexion shorts",
+    "instagram reel opinion de la gente espana shorts",
+    "instagram reel microfono en la calle espana shorts",
+    "instagram reel debate espana shorts",
+    "instagram reel alquiler jovenes espana shorts",
+    "instagram reels podcast reflexiones espana shorts"
 ]
 
 def download_clip(query_or_url):
@@ -508,15 +523,28 @@ def download_clip(query_or_url):
             meta_info = ydl.extract_info(query_or_url, download=True) or {}
         if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
             raise RuntimeError(f"No se pudo descargar el video desde la URL: {query_or_url}")
+
+        # Rechazar videos anteriores a 2020 en URL directa
+        upload_date = str(meta_info.get('upload_date') or "")
+        if upload_date and len(upload_date) >= 4 and upload_date[:4].isdigit():
+            year = int(upload_date[:4])
+            if year < 2020:
+                try:
+                    os.remove(output_file)
+                except Exception:
+                    pass
+                raise RuntimeError(f"El video proporcionado es del año {year} (anterior a 2020). Solo se procesan videos a partir del año 2020.")
+
         return output_file, meta_info
 
-    # Caso 2: Búsqueda inteligente imparable de videos
+    # Caso 2: Búsqueda inteligente imparable de videos (Instagram Reels como fuente primaria)
     opts_search = {
         'format': '18/bestvideo*+bestaudio/best',
         'merge_output_format': 'mp4',
         'outtmpl': output_file,
         'extractor_args': extractor_args,
-        'match_filter': duration_filter,
+        'match_filter': duration_and_year_filter,
+        'dateafter': '20200101',
         'ffmpeg_location': FFMPEG_PATH,
         'max_downloads': 1,
         'quiet': True,
@@ -524,9 +552,9 @@ def download_clip(query_or_url):
     }
 
     errors_log = []
-    # 1. Probar la consulta original adaptada
+    # 1. Probar la consulta original adaptada (Instagram Reels prioritario)
     clean_q = clean_search_query(query_or_url)
-    print(f"🎯 Intento 1: Búsqueda para '{clean_q}'...")
+    print(f"🎯 Intento 1: Búsqueda para '{clean_q}' (a partir de 2020)...")
     try:
         with yt_dlp.YoutubeDL(opts_search) as ydl:
             search_res = ydl.extract_info(f"ytsearch15:{clean_q}", download=True)
@@ -539,11 +567,11 @@ def download_clip(query_or_url):
         errors_log.append(f"Intento 1: {err_msg[:120]}")
         print(f"⚠️ Nota en intento 1: {err_msg}")
 
-    # 2. Si no descargó, probar búsqueda simplificada con 'debate shorts'
+    # 2. Si no descargó, probar búsqueda alternativa de Reels de España
     if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-        words = [w for w in re.findall(r'\w+', query_or_url) if w.lower() not in ['shorts', 'tiktok', 'debate', 'espana']]
-        alt_q = f"{' '.join(words[:2])} debate espana shorts"
-        print(f"🔄 Intento 2: Búsqueda simplificada: '{alt_q}'...")
+        words = [w for w in re.findall(r'\w+', query_or_url) if w.lower() not in ['shorts', 'tiktok', 'espana', 'instagram', 'reel', 'reels']]
+        alt_q = f"instagram reel {' '.join(words[:2])} espana shorts"
+        print(f"🔄 Intento 2: Búsqueda Reels simplificada: '{alt_q}'...")
         try:
             with yt_dlp.YoutubeDL(opts_search) as ydl:
                 search_res = ydl.extract_info(f"ytsearch15:{alt_q}", download=True)
