@@ -287,8 +287,8 @@ def download_clip(query_or_url):
 
     is_direct_url = query_or_url.startswith("http")
     is_youtube = ("youtube.com" in query_or_url) or ("youtu.be" in query_or_url) or (not is_direct_url)
-    cookie_path = "cookies.txt" if (os.path.exists("cookies.txt") and not is_youtube) else None
-    extractor_args = {'youtube': {'player_client': ['android', 'web']}} if is_youtube else {}
+    cookie_path = "cookies.txt" if os.path.exists("cookies.txt") else None
+    extractor_args = {'youtube': {'player_client': ['ios', 'android', 'mweb', 'web']}} if is_youtube else {}
 
     meta_info = {}
 
@@ -321,6 +321,7 @@ def download_clip(query_or_url):
         'no_warnings': True
     }
 
+    errors_log = []
     # 1. Probar la consulta original adaptada
     clean_q = clean_search_query(query_or_url)
     print(f"🎯 Intento 1: Búsqueda para '{clean_q}'...")
@@ -332,7 +333,9 @@ def download_clip(query_or_url):
     except yt_dlp.utils.MaxDownloadsReached:
         pass
     except Exception as e:
-        print(f"⚠️ Nota en intento 1: {e}")
+        err_msg = str(e)
+        errors_log.append(f"Intento 1: {err_msg[:120]}")
+        print(f"⚠️ Nota en intento 1: {err_msg}")
 
     # 2. Si no descargó, probar búsqueda simplificada con 'debate shorts'
     if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
@@ -347,7 +350,9 @@ def download_clip(query_or_url):
         except yt_dlp.utils.MaxDownloadsReached:
             pass
         except Exception as e:
-            print(f"⚠️ Nota en intento 2: {e}")
+            err_msg = str(e)
+            errors_log.append(f"Intento 2: {err_msg[:120]}")
+            print(f"⚠️ Nota en intento 2: {err_msg}")
 
     # 3. Si aún no hay video, recorrer la lista de temas virales garantizados de España
     if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
@@ -361,7 +366,9 @@ def download_clip(query_or_url):
             except yt_dlp.utils.MaxDownloadsReached:
                 pass
             except Exception as e:
-                print(f"⚠️ Nota en fallback: {e}")
+                err_msg = str(e)
+                errors_log.append(f"{fallback_q}: {err_msg[:120]}")
+                print(f"⚠️ Nota en fallback: {err_msg}")
 
             if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
                 print(f"✅ Video encontrado y descargado con éxito desde '{fallback_q}'!")
@@ -375,6 +382,7 @@ def download_clip(query_or_url):
             'merge_output_format': 'mp4',
             'outtmpl': output_file,
             'extractor_args': extractor_args,
+            'cookiefile': cookie_path,
             'max_downloads': 1,
             'quiet': True,
             'no_warnings': True
@@ -387,10 +395,13 @@ def download_clip(query_or_url):
         except yt_dlp.utils.MaxDownloadsReached:
             pass
         except Exception as e:
-            print(f"⚠️ Nota en último recurso: {e}")
+            err_msg = str(e)
+            errors_log.append(f"Último recurso: {err_msg[:120]}")
+            print(f"⚠️ Nota en último recurso: {err_msg}")
 
     if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-        raise RuntimeError("No se pudo descargar ningún video tras agotar todas las fuentes.")
+        det = " | ".join(errors_log[-2:]) if errors_log else "Filtros de duración"
+        raise RuntimeError(f"No se pudo descargar ningún video en Render. Detalle: {det}")
 
     return output_file, meta_info
 
