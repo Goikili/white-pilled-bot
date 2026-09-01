@@ -287,15 +287,15 @@ def download_clip(query_or_url):
 
     is_direct_url = query_or_url.startswith("http")
     is_youtube = ("youtube.com" in query_or_url) or ("youtu.be" in query_or_url) or (not is_direct_url)
-    cookie_path = "cookies.txt" if os.path.exists("cookies.txt") else None
-    extractor_args = {'youtube': {'player_client': ['ios', 'android', 'mweb', 'web']}} if is_youtube else {}
+    cookie_path = "cookies.txt" if (os.path.exists("cookies.txt") and not is_youtube) else None
+    extractor_args = {'youtube': {'player_client': ['android']}} if is_youtube else {}
 
     meta_info = {}
 
     # Caso 1: Descarga directa por URL (Instagram Reel, TikTok, YouTube)
     if is_direct_url:
         opts = {
-            'format': 'bestvideo*+bestaudio/best',
+            'format': '18/bestvideo*+bestaudio/best',
             'outtmpl': output_file,
             'merge_output_format': 'mp4',
             'extractor_args': extractor_args,
@@ -311,7 +311,7 @@ def download_clip(query_or_url):
 
     # Caso 2: Búsqueda inteligente imparable de videos
     opts_search = {
-        'format': 'bestvideo*+bestaudio/best',
+        'format': '18/bestvideo*+bestaudio/best',
         'merge_output_format': 'mp4',
         'outtmpl': output_file,
         'extractor_args': extractor_args,
