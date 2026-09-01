@@ -21,6 +21,31 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+# Servidor HTTP de salud para compatibilidad con Render Web Service
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"White Pilled Bot is live and running 24/7!")
+
+    def log_message(self, format, *args):
+        pass
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    try:
+        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+        print(f"🌐 Servidor de salud activo en el puerto {port} (compatible con Render Web Service)")
+        server.serve_forever()
+    except Exception as e:
+        print(f"⚠️ Nota en servidor HTTP de salud: {e}")
+
+threading.Thread(target=run_health_server, daemon=True).start()
+
 # Compatibilidad de Pillow 10+ con MoviePy 1.0.3 (ANTIALIAS fue reemplazado por LANCZOS)
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.Resampling.LANCZOS
