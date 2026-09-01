@@ -190,10 +190,29 @@ def clean_text_for_title(t):
     clean = re.sub(r'[^\w\s¿?¡!ÁÉÍÓÚáéíóúÑñ]', '', t).strip()
     return clean
 
+def is_uninformative_title(title_text):
+    """Detecta si un título carece de contexto o es basura automática como 'Video by...'."""
+    if not title_text:
+        return True
+    t = str(title_text).strip().lower()
+    junk_patterns = [
+        r'\bvideo by\b', r'\breel by\b', r'\bpost by\b', r'\bphoto by\b',
+        r'\bclip by\b', r'\btiktok by\b', r'\bshared by\b', r'\baudio by\b',
+        r'\bvideo de\b', r'\breel de\b', r'\bpublicaci[oó]n de\b', r'\bpost de\b',
+        r'^video\b', r'^reel\b', r'^shorts?\b', r'^tiktok\b', r'^instagram\b'
+    ]
+    for pattern in junk_patterns:
+        if re.search(pattern, t):
+            return True
+            
+    # Contar palabras sustantivas
+    words = [w for w in re.findall(r'\w+', t) if len(w) > 2 and w not in ['video', 'reel', 'clip', 'post', 'shorts', 'tiktok', 'instagram', 'by', 'de', 'del', 'en']]
+    return len(words) < 2
+
 def extract_punchy_title_and_speaker(raw_title, raw_desc, uploader):
     """Extrae un titular con sentido completo a partir del título real del video."""
     t = str(raw_title or "").strip()
-    if not t:
+    if is_uninformative_title(t):
         t = str(raw_desc or "").strip()
 
     # Eliminar URLs, menciones y hashtags
@@ -208,15 +227,15 @@ def extract_punchy_title_and_speaker(raw_title, raw_desc, uploader):
     
     t = ' '.join(t.split()).strip('-_: ')
     
-    # Si tras limpiar queda un texto con sentido, usarlo
-    if len(t.split()) >= 2:
-        top_title = format_to_two_lines(t)
-    else:
-        top_title = "DEBATE SOCIAL\nEN ESPAÑA"
-
     clean_uploader = (uploader or "").strip()
     clean_uploader = re.sub(r'[@_]', ' ', clean_uploader).strip()
     speaker = clean_uploader.split()[0].upper() if clean_uploader else "DEBATE"
+
+    # Si tras limpiar sigue careciendo de contexto, devolver None para preguntar al usuario
+    if is_uninformative_title(t):
+        return None, speaker
+
+    top_title = format_to_two_lines(t)
     return top_title, speaker
 
 def condense_or_rewrite_if_long(text):
@@ -326,14 +345,23 @@ Devuelve ÚNICAMENTE un objeto JSON:
                 config=types.GenerateContentConfig(response_mime_type="application/json")
             )
             parsed = parse_json_response(response.text)
-            if parsed.get("top_title"):
-                print(f"✅ Titular generado con IA: {parsed.get('top_title')}")
+            top_t = parsed.get("top_title")
+            if top_t and not is_uninformative_title(top_t):
+                print(f"✅ Titular generado con IA: {top_t}")
                 return parsed
         except Exception:
             pass
 
     # 2. Extracción inteligente de la metadata real del video
     punchy_title, speaker = extract_punchy_title_and_speaker(real_title, real_desc, real_uploader)
+    if not punchy_title or is_uninformative_title(punchy_title):
+        # El bot carece de contexto suficiente para poner un titular de calidad
+        return {
+            "top_title": None,
+            "speaker_name": speaker,
+            "caption": ""
+        }
+
     display_title = format_to_two_lines(punchy_title)
     return {
         "top_title": display_title,
@@ -770,6 +798,7 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
     return output_path
 
 ACTIVE_TASKS = {}
+PENDING_VIDEOS = {}
 CANCEL_KEYBOARD = InlineKeyboardMarkup([
     [InlineKeyboardButton("🛑 Cancelar acción", callback_data="abort_process")]
 ])
@@ -806,6 +835,94 @@ async def abort_task_for_chat(chat_id):
 class SimpleBotContext:
     def __init__(self, bot):
         self.bot = bot
+
+async def resume_editing_pending(chat_id, context, pending, custom_top, custom_bottom):
+    """Reanuda la edición de un video que ya fue descargado tras recibir el titular del usuario."""
+    raw_clip = pending["raw_clip"]
+    meta_info = pending["meta_info"]
+    data = pending["data"]
+
+    msg = await context.bot.send_message(
+        chat_id=chat_id,
+        text="🎬 *[1/2]* Titular recibido. Maquetando video en estilo White Pilled...",
+        parse_mode="Markdown",
+        reply_markup=CANCEL_KEYBOARD
+    )
+    final_video = None
+    current_task = asyncio.current_task()
+    ACTIVE_TASKS[chat_id] = {
+        "task": current_task,
+        "msg": msg,
+        "raw_clip": raw_clip,
+        "final_video": None
+    }
+
+    try:
+        video_data = await asyncio.to_thread(analyze_video_content, meta_info, data, custom_top, custom_bottom)
+        clean_top_title = video_data['top_title'].replace('\n', ' ')
+
+        await update_status(
+            msg,
+            f"🎬 *[1/2]* Maquetando video:\n*{clean_top_title}*\n\n_Encuadrando vertical, aplicando B/N y barra inferior completa..._"
+        )
+
+        final_video = await asyncio.to_thread(
+            edit_whitepilled_style, raw_clip, video_data["top_title"], video_data["speaker_name"]
+        )
+        if chat_id in ACTIVE_TASKS:
+            ACTIVE_TASKS[chat_id]["final_video"] = final_video
+
+        await update_status(
+            msg,
+            "📤 *[2/2]* ¡Edición completada!\n\n_Subiendo video a Telegram..._",
+            show_cancel=False
+        )
+
+        caption_text = f"🔥 *{clean_top_title}*\n\n{video_data['caption']}"
+
+        with open(final_video, "rb") as f:
+            await context.bot.send_video(
+                chat_id=chat_id,
+                video=f,
+                caption=caption_text,
+                parse_mode="Markdown",
+                supports_streaming=True,
+                write_timeout=180,
+                read_timeout=120
+            )
+
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+    except asyncio.CancelledError:
+        print(f"🛑 Reanudación cancelada por el usuario para chat_id {chat_id}")
+        if raw_clip and os.path.exists(raw_clip):
+            try:
+                os.remove(raw_clip)
+            except Exception:
+                pass
+        if final_video and os.path.exists(final_video):
+            try:
+                os.remove(final_video)
+            except Exception:
+                pass
+        return
+    except Exception as e:
+        print(f"❌ Error en resume_editing_pending: {e}")
+        await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Error al reanudar: {e}")
+    finally:
+        ACTIVE_TASKS.pop(chat_id, None)
+        if raw_clip and os.path.exists(raw_clip):
+            try:
+                os.remove(raw_clip)
+            except Exception:
+                pass
+        if final_video and os.path.exists(final_video):
+            try:
+                os.remove(final_video)
+            except Exception:
+                pass
 
 async def process_and_send(chat_id, context, custom_topic=None, direct_url=None, custom_top=None, custom_bottom=None, is_scheduled=False):
     header = "⏰ *[ENVÍO DIARIO PROGRAMADO]*\n\n" if is_scheduled else ""
@@ -852,6 +969,32 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
         )
 
         video_data = await asyncio.to_thread(analyze_video_content, meta_info, data, custom_top, custom_bottom)
+
+        # Si el video carece de contexto identificable y el usuario no especificó titular, preguntarle
+        if not video_data.get("top_title"):
+            PENDING_VIDEOS[chat_id] = {
+                "raw_clip": raw_clip,
+                "meta_info": meta_info,
+                "data": data,
+                "custom_bottom": custom_bottom,
+                "timestamp": time.time()
+            }
+            # Evitar que finally borre raw_clip ya que queda guardado esperando la respuesta del usuario
+            raw_clip = None
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "❓ *No he podido identificar el tema o contexto de este video automáticamente* (los metadatos no traen un titular claro).\n\n"
+                    "👉 *¿Qué titular quieres poner arriba?*\n"
+                    "Escríbemelo ahora en este chat (ejemplo: `arriba: Tu titular` y opcionalmente `abajo: Nombre`, o directamente el titular) y te lo maqueto al instante."
+                ),
+                parse_mode="Markdown"
+            )
+            return
 
         clean_top_title = video_data['top_title'].replace('\n', ' ')
         await update_status(
@@ -1033,10 +1176,30 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     urls = re.findall(r'https?://[^\s]+', text)
+    chat_id = update.effective_chat.id
+
     if urls:
         target_url = urls[0]
         custom_top, custom_bottom = parse_custom_texts(text, target_url)
-        await process_and_send(update.effective_chat.id, context, direct_url=target_url, custom_top=custom_top, custom_bottom=custom_bottom)
+        await process_and_send(chat_id, context, direct_url=target_url, custom_top=custom_top, custom_bottom=custom_bottom)
+    elif chat_id in PENDING_VIDEOS:
+        # El usuario está respondiendo a la pregunta sobre qué titular poner en el video descargado
+        pending = PENDING_VIDEOS.pop(chat_id)
+        # Verificar que la sesión no haya caducado (15 minutos)
+        if time.time() - pending.get("timestamp", 0) > 900:
+            if pending.get("raw_clip") and os.path.exists(pending["raw_clip"]):
+                try:
+                    os.remove(pending["raw_clip"])
+                except Exception:
+                    pass
+            await update.message.reply_text("⚠️ La sesión de ese video ha caducado. Por favor, vuelve a enviar el enlace junto a tu titular.")
+            return
+
+        custom_top, custom_bottom = parse_custom_texts(text)
+        if not custom_bottom and pending.get("custom_bottom"):
+            custom_bottom = pending["custom_bottom"]
+
+        await resume_editing_pending(chat_id, context, pending, custom_top, custom_bottom)
     else:
         await update.message.reply_text(
             "💡 Envíame un enlace de TikTok, Instagram Reel o YouTube Shorts para maquetarlo.\n\n"
@@ -1044,7 +1207,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             "```text\n"
             "https://... arriba: Tu titular aquí abajo: Tu personaje\n"
             "```\n"
-            "*(Si el texto de arriba no entra, se reescribe automáticamente).*",
+            "*(Si el video no tiene título claro, te preguntaré qué titular poner antes de maquetarlo).* ",
             parse_mode="Markdown"
         )
 
