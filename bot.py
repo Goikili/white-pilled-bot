@@ -813,6 +813,7 @@ async def update_status(msg, text, show_cancel=True):
 async def abort_task_for_chat(chat_id):
     """Cancela la tarea activa para este chat y limpia los archivos temporales."""
     chat_key = str(chat_id)
+    print(f"🛑 Solicitud de cancelación recibida para chat: {chat_key}")
     info = ACTIVE_TASKS.pop(chat_key, None)
     if not info and chat_key.lstrip('-').isdigit():
         info = ACTIVE_TASKS.pop(int(chat_key), None)
@@ -821,6 +822,7 @@ async def abort_task_for_chat(chat_id):
         info["cancelled"] = True
         task = info.get("task")
         if task and not task.done():
+            print(f"🛑 Cancelando tarea activa: {task}")
             task.cancel()
         for p in [info.get("raw_clip"), info.get("final_video")]:
             if p and os.path.exists(p):
@@ -835,6 +837,7 @@ async def abort_task_for_chat(chat_id):
             except Exception:
                 pass
         return True
+    print(f"ℹ️ No se encontró tarea activa para {chat_key}. Tareas registradas: {list(ACTIVE_TASKS.keys())}")
     return False
 
 class SimpleBotContext:
@@ -855,7 +858,8 @@ async def resume_editing_pending(chat_id, context, pending, custom_top, custom_b
     )
     final_video = None
     current_task = asyncio.current_task()
-    ACTIVE_TASKS[chat_id] = {
+    chat_key = str(chat_id)
+    ACTIVE_TASKS[chat_key] = {
         "task": current_task,
         "msg": msg,
         "raw_clip": raw_clip,
@@ -874,8 +878,8 @@ async def resume_editing_pending(chat_id, context, pending, custom_top, custom_b
         final_video = await asyncio.to_thread(
             edit_whitepilled_style, raw_clip, video_data["top_title"], video_data["speaker_name"]
         )
-        if chat_id in ACTIVE_TASKS:
-            ACTIVE_TASKS[chat_id]["final_video"] = final_video
+        if chat_key in ACTIVE_TASKS:
+            ACTIVE_TASKS[chat_key]["final_video"] = final_video
 
         await update_status(
             msg,
@@ -917,7 +921,7 @@ async def resume_editing_pending(chat_id, context, pending, custom_top, custom_b
         print(f"❌ Error en resume_editing_pending: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Error al reanudar: {e}")
     finally:
-        ACTIVE_TASKS.pop(chat_id, None)
+        ACTIVE_TASKS.pop(chat_key, None)
         if raw_clip and os.path.exists(raw_clip):
             try:
                 os.remove(raw_clip)
@@ -941,7 +945,8 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
     final_video = None
     
     current_task = asyncio.current_task()
-    ACTIVE_TASKS[chat_id] = {
+    chat_key = str(chat_id)
+    ACTIVE_TASKS[chat_key] = {
         "task": current_task,
         "msg": msg,
         "raw_clip": None,
@@ -965,8 +970,8 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
             )
 
         raw_clip, meta_info = await asyncio.to_thread(download_clip, target)
-        if chat_id in ACTIVE_TASKS:
-            ACTIVE_TASKS[chat_id]["raw_clip"] = raw_clip
+        if chat_key in ACTIVE_TASKS:
+            ACTIVE_TASKS[chat_key]["raw_clip"] = raw_clip
 
         await update_status(
             msg,
@@ -977,7 +982,7 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
 
         # Si el video carece de contexto identificable y el usuario no especificó titular, preguntarle
         if not video_data.get("top_title"):
-            PENDING_VIDEOS[chat_id] = {
+            PENDING_VIDEOS[chat_key] = {
                 "raw_clip": raw_clip,
                 "meta_info": meta_info,
                 "data": data,
@@ -1010,8 +1015,8 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
         final_video = await asyncio.to_thread(
             edit_whitepilled_style, raw_clip, video_data["top_title"], video_data["speaker_name"]
         )
-        if chat_id in ACTIVE_TASKS:
-            ACTIVE_TASKS[chat_id]["final_video"] = final_video
+        if chat_key in ACTIVE_TASKS:
+            ACTIVE_TASKS[chat_key]["final_video"] = final_video
 
         await update_status(
             msg,
@@ -1053,7 +1058,7 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
         print(f"❌ Error en process_and_send: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Error: {e}")
     finally:
-        ACTIVE_TASKS.pop(chat_id, None)
+        ACTIVE_TASKS.pop(chat_key, None)
         if raw_clip and os.path.exists(raw_clip):
             try:
                 os.remove(raw_clip)
@@ -1093,7 +1098,7 @@ async def scheduled_dispatcher(application):
 
 async def cmd_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = " ".join(context.args) if context.args else None
-    await process_and_send(update.effective_chat.id, context, custom_topic=topic)
+    asyncio.create_task(process_and_send(update.effective_chat.id, context, custom_topic=topic))
 
 def parse_custom_texts(text, target_url=""):
     """Extrae inteligentemente 'arriba:' y 'abajo:' del mensaje."""
@@ -1131,7 +1136,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = context.args[0]
     rest = " ".join(context.args[1:]) if len(context.args) > 1 else ""
     custom_top, custom_bottom = parse_custom_texts(rest)
-    await process_and_send(update.effective_chat.id, context, direct_url=url, custom_top=custom_top, custom_bottom=custom_bottom)
+    asyncio.create_task(process_and_send(update.effective_chat.id, context, direct_url=url, custom_top=custom_top, custom_bottom=custom_bottom))
 
 async def cmd_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.datetime.now().strftime("%H:%M:%S")
@@ -1156,14 +1161,15 @@ async def handle_callback_abort(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     chat_id = update.effective_chat.id
+    print(f"🔘 Botón [Cancelar] pulsado por chat_id: {chat_id}")
     await abort_task_for_chat(chat_id)
     try:
         await query.edit_message_text(
             "🛑 *Acción cancelada.*\n\n_Se ha detenido la descarga y edición del video y se han liberado los recursos._",
             parse_mode="Markdown"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error al editar mensaje de callback: {e}")
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -1186,14 +1192,15 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = (update.message.text or "").strip()
     urls = re.findall(r'https?://[^\s]+', text)
     chat_id = update.effective_chat.id
+    chat_key = str(chat_id)
 
     if urls:
         target_url = urls[0]
         custom_top, custom_bottom = parse_custom_texts(text, target_url)
-        await process_and_send(chat_id, context, direct_url=target_url, custom_top=custom_top, custom_bottom=custom_bottom)
-    elif chat_id in PENDING_VIDEOS:
+        asyncio.create_task(process_and_send(chat_id, context, direct_url=target_url, custom_top=custom_top, custom_bottom=custom_bottom))
+    elif chat_key in PENDING_VIDEOS or chat_id in PENDING_VIDEOS:
         # El usuario está respondiendo a la pregunta sobre qué titular poner en el video descargado
-        pending = PENDING_VIDEOS.pop(chat_id)
+        pending = PENDING_VIDEOS.pop(chat_key, None) or PENDING_VIDEOS.pop(chat_id, None)
         # Verificar que la sesión no haya caducado (15 minutos)
         if time.time() - pending.get("timestamp", 0) > 900:
             if pending.get("raw_clip") and os.path.exists(pending["raw_clip"]):
@@ -1208,7 +1215,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not custom_bottom and pending.get("custom_bottom"):
             custom_bottom = pending["custom_bottom"]
 
-        await resume_editing_pending(chat_id, context, pending, custom_top, custom_bottom)
+        asyncio.create_task(resume_editing_pending(chat_id, context, pending, custom_top, custom_bottom))
     else:
         await update.message.reply_text(
             "💡 Envíame un enlace de TikTok, Instagram Reel o YouTube Shorts para maquetarlo.\n\n"
@@ -1227,6 +1234,7 @@ def main():
     app = (
         ApplicationBuilder()
         .token(TELEGRAM_BOT_TOKEN)
+        .concurrent_updates(True)
         .post_init(post_init)
         .connect_timeout(60)
         .read_timeout(120)
@@ -1242,7 +1250,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text_message))
     
     print("🚀 Bot iniciado correctamente y conectado a Telegram...")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
