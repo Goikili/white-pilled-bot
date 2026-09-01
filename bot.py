@@ -116,9 +116,21 @@ def fetch_trend_data(custom_topic=None):
                 time.sleep(1)
                 continue
 
+    if custom_topic:
+        clean_top = format_to_two_lines(f"DEBATE SOBRE {custom_topic}".upper())
+        return {
+            "search_query": f"debate {custom_topic} espana #shorts",
+            "top_title": clean_top,
+            "speaker_name": custom_topic[:20].upper(),
+            "caption": f"🔥 Debate sociopolítico sobre {custom_topic} en España.\n\n¿Qué opinas sobre este tema? Déjanos tu reflexión en comentarios. 👇\n\n#{custom_topic.replace(' ', '')} #Debate #Espana #Actualidad"
+        }
+
     fallback_topics = [
-        {"search_query": "debate alquiler espana #shorts", "top_title": "¿ALQUILAR ES\nTIRAR EL DINERO?", "speaker_name": "CRISIS VIVIENDA", "caption": "¿Tú qué opinas sobre el precio del alquiler en España? Déjalo en comentarios. 👇\n\n#Vivienda #Alquiler #España #Debate"},
-        {"search_query": "debate jornada laboral 37 horas espana #shorts", "top_title": "¿REDUCIR JORNADA\nA 37,5 HORAS?", "speaker_name": "DEBATE LABORAL", "caption": "¿Crees que reducir la jornada aumentará la productividad o dañará a las PYMES? Comenta tu opinión. 👇\n\n#Trabajo #Economia #España"}
+        {"search_query": "debate alquiler espana #shorts", "top_title": "¿ALQUILAR ES\nTIRAR EL DINERO?", "speaker_name": "CRISIS VIVIENDA", "caption": "¿Tú qué opinas sobre el precio de la vivienda y el alquiler en España? Déjalo en comentarios. 👇\n\n#Vivienda #Alquiler #España #Debate"},
+        {"search_query": "debate jornada laboral 37 horas espana #shorts", "top_title": "¿REDUCIR JORNADA\nA 37,5 HORAS?", "speaker_name": "DEBATE LABORAL", "caption": "¿Crees que reducir la jornada aumentará la productividad o dañará a las PYMES? Comenta tu opinión. 👇\n\n#Trabajo #Economia #España"},
+        {"search_query": "debate pensiones espana futuro #shorts", "top_title": "¿HABRÁ PENSIONES\nEN EL FUTURO?", "speaker_name": "SISTEMA PENSIONES", "caption": "¿Crees que el sistema de pensiones actual es sostenible para los jóvenes? Deja tu opinión. 👇\n\n#Pensiones #Jubilacion #España"},
+        {"search_query": "debate oposiciones o empresa privada espana #shorts", "top_title": "¿OPOSITAR O\nEMPRENDER?", "speaker_name": "CULTURA LABORAL", "caption": "¿Merece la pena el esfuerzo de opositar en España o es mejor el sector privado? Comenta tu experiencia. 👇\n\n#Oposiciones #España #Empleo"},
+        {"search_query": "debate impuestos espana sueldos #shorts", "top_title": "¿PAGAMOS DEMASIADOS\nIMPUESTOS?", "speaker_name": "FISCALIDAD", "caption": "¿Crees que los impuestos en España se gestionan bien o asfixian a la clase trabajadora? 👇\n\n#Impuestos #Economia #España"}
     ]
     import random
     return random.choice(fallback_topics)
