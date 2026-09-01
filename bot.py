@@ -379,11 +379,10 @@ def download_clip(query_or_url):
     if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
         print("🚨 Último recurso: Descargando clip sin restricción de filtro...")
         opts_relaxed = {
-            'format': 'bestvideo*+bestaudio/best',
+            'format': '18/bestvideo*+bestaudio/best',
             'merge_output_format': 'mp4',
             'outtmpl': output_file,
             'extractor_args': extractor_args,
-            'cookiefile': cookie_path,
             'max_downloads': 1,
             'quiet': True,
             'no_warnings': True
