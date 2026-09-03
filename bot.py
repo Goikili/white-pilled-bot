@@ -8,6 +8,7 @@ import asyncio
 import functools
 import datetime
 import time
+import subprocess
 import PIL.Image
 
 # Forzar flush inmediato en todos los print
@@ -87,6 +88,7 @@ from google import genai
 from google.genai import types
 from moviepy.editor import VideoFileClip, ColorClip, TextClip, CompositeVideoClip, VideoClip, vfx
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.request import HTTPXRequest
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ================= CONFIGURACIÓN =================
@@ -384,16 +386,16 @@ def analyze_video_content(metadata_info, fallback_data, custom_top=None, custom_
             if not speaker:
                 speaker = auto_speaker
 
-        clean_top_disp = formatted_top.replace('\n', ' ')
+        clean_top_disp = formatted_top.replace('\n', ' ') if formatted_top else ""
         return {
             "top_title": formatted_top,
             "speaker_name": speaker,
-            "caption": f"🔥 {clean_top_disp}\n\n¿Qué opinas sobre este debate? Déjalo en comentarios. 👇\n\n#Debate #España #Viral #Reflexion"
+            "caption": f"🔥 {clean_top_disp}\n\n¿Qué opinas sobre este debate? Déjalo en comentarios. 👇\n\n#Debate #España #Viral #Reflexion" if clean_top_disp else ""
         }
 
     real_title = metadata_info.get("title") or fallback_data.get("top_title") or ""
-    real_uploader = metadata_info.get("uploader") or metadata_info.get("channel") or fallback_data.get("speaker_name") or "DEBATE"
-    real_desc = metadata_info.get("description") or fallback_data.get("caption") or ""
+    real_uploader = metadata_info.get("uploader") or metadata_info.get("channel") or metadata_info.get("uploader_id") or fallback_data.get("speaker_name") or "DEBATE"
+    real_desc = metadata_info.get("description") or metadata_info.get("caption") or fallback_data.get("caption") or ""
 
     # 1. Intentar con IA de Gemini
     analysis_prompt = f"""
@@ -401,11 +403,11 @@ Eres editor de una cuenta viral de Instagram Reels de reflexión sociopolítica 
 Clip compartido:
 Título: "{real_title}"
 Autor: "{real_uploader}"
-Descripción: "{real_desc[:400]}"
+Descripción completa del post: "{real_desc[:1500]}"
 
 Tu tarea:
-1. "top_title": Titular polémico en MAYÚSCULAS en EXACTAMENTE 2 LÍNEAS (separadas por \\n, máximo 5-6 palabras en total) que plantee el conflicto o la pregunta clave del video.
-2. "speaker_name": Nombre de la persona o tema clave en MAYÚSCULAS (1-3 palabras máximo).
+1. "top_title": Titular polémico en MAYÚSCULAS en EXACTAMENTE 2 LÍNEAS (separadas por \\n, máximo 5-6 palabras en total) que plantee el conflicto o la pregunta clave del video basándote en lo que dice la descripción o el título.
+2. "speaker_name": Nombre de la persona, autor o tema clave en MAYÚSCULAS (1-3 palabras máximo).
 3. "caption": Copy para Instagram en español de España reflexionando sobre el video, invitando a comentar, con 4-5 hashtags.
 
 Devuelve ÚNICAMENTE un objeto JSON:
@@ -459,10 +461,10 @@ def clean_search_query(q):
     return f"{core} #shorts"
 
 def duration_and_year_filter(info_dict, *, incomplete):
-    # 1. Duración adecuada para formato vertical corto (5s - 200s)
+    # 1. Duración adecuada para formato vertical corto (5s - 600s)
     dur = info_dict.get('duration')
-    if dur is not None and (dur > 200 or dur < 5):
-        return f"Video duration {dur}s not in [5, 200]"
+    if dur is not None and (dur > 600 or dur < 5):
+        return f"Video duration {dur}s not in [5, 600]"
 
     # 2. Filtrar fecha: ESTRICTAMENTE a partir de 2020 (rechazar todo lo anterior)
     upload_date = str(info_dict.get('upload_date') or "")
@@ -759,11 +761,7 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
         raise FileNotFoundError(f"El archivo fuente {raw_path} no existe o está vacío.")
 
     clip = VideoFileClip(raw_path).fx(vfx.blackwhite)
-
-    MAX_DURATION = 75
-    if clip.duration > MAX_DURATION:
-        print(f"✂️ Acortando clip de {clip.duration:.1f}s a {MAX_DURATION}s para formato Reel...")
-        clip = clip.subclip(0, MAX_DURATION)
+    print(f"⏱️ Duración del video a editar: {clip.duration:.1f} segundos.")
 
     target_w, target_h = 1080, 1920
     MAX_WINDOW_H = 1050
@@ -893,21 +891,149 @@ def edit_whitepilled_style(raw_path, top_title, speaker_name, output_path=None):
     if clip.audio is not None:
         final = final.set_audio(clip.audio)
 
-    # Renderizado ultrarrápido multi-hilo optimizado para Reels
+    # Configurar bitrate inteligente para que el video NUNCA supere 20-25MB
+    dur = max(1.0, float(clip.duration))
+    # Tamaño objetivo de seguridad: ~18-20 MB (garantiza subida instantánea en cualquier red)
+    max_target_bytes = 18 * 1024 * 1024
+    target_total_kbps = int((max_target_bytes * 8) / (dur * 1000))
+    video_kbps = max(380, min(1600, target_total_kbps - 96))
+
+    # Renderizado optimizado multi-hilo para Reels
     threads_count = min(12, os.cpu_count() or 4)
     final.write_videofile(
         output_path,
         fps=25,
         codec="libx264",
         audio_codec="aac",
-        preset="ultrafast",
+        preset="veryfast",
         threads=threads_count,
-        ffmpeg_params=["-pix_fmt", "yuv420p", "-crf", "23"],
+        bitrate=f"{video_kbps}k",
+        audio_bitrate="96k",
+        ffmpeg_params=[
+            "-pix_fmt", "yuv420p",
+            "-maxrate", f"{int(video_kbps * 1.2)}k",
+            "-bufsize", f"{int(video_kbps * 2)}k"
+        ],
         logger=None
     )
     clip.close()
     final.close()
+
+    # Garantía absoluta: si el archivo supera 25MB, recomprimir de inmediato con FFmpeg
+    output_path = ensure_under_telegram_limit(output_path, max_bytes=25 * 1024 * 1024)
     return output_path
+
+def ensure_under_telegram_limit(file_path, max_bytes=25 * 1024 * 1024):
+    """Comprueba el tamaño del video y si supera el límite de seguridad lo comprime con FFmpeg."""
+    if not file_path or not os.path.exists(file_path):
+        return file_path
+
+    size = os.path.getsize(file_path)
+    if size <= max_bytes:
+        return file_path
+
+    print(f"⚠️ Video pesa {size / (1024*1024):.2f} MB. Comprimiendo a <20MB para asegurar envío sin cortes...")
+
+    ffmpeg_exe = FFMPEG_PATH or "ffmpeg"
+    temp_comp = f"comp_{int(time.time())}_{uuid.uuid4().hex[:6]}.mp4"
+
+    # Estimar duración
+    try:
+        from moviepy.editor import VideoFileClip
+        with VideoFileClip(file_path) as tmp_c:
+            dur = max(1.0, float(tmp_c.duration))
+    except Exception:
+        dur = 120.0
+
+    target_kbps = max(300, int((16 * 1024 * 1024 * 8) / (dur * 1000)) - 96)
+
+    cmd = [
+        ffmpeg_exe, "-y",
+        "-i", file_path,
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-b:v", f"{target_kbps}k",
+        "-maxrate", f"{int(target_kbps * 1.2)}k",
+        "-bufsize", f"{int(target_kbps * 2)}k",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "96k",
+        temp_comp
+    ]
+
+    try:
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        if os.path.exists(temp_comp) and os.path.getsize(temp_comp) > 0:
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+            os.rename(temp_comp, file_path)
+            print(f"✅ Video comprimido con éxito a {os.path.getsize(file_path) / (1024*1024):.2f} MB.")
+    except Exception as e:
+        print(f"⚠️ Nota al recomprimir: {e}")
+        if os.path.exists(temp_comp):
+            try:
+                os.remove(temp_comp)
+            except Exception:
+                pass
+
+    return file_path
+
+async def safe_send_video(context, chat_id, final_video, caption_text):
+    """Envía el video a Telegram con reintentos robustos y soporte para fallbacks."""
+    final_video = ensure_under_telegram_limit(final_video, max_bytes=25 * 1024 * 1024)
+    clean_caption = caption_text[:997] + "..." if len(caption_text) > 1000 else caption_text
+
+    # Intento 1: Envío normal como video optimizado
+    try:
+        with open(final_video, "rb") as f:
+            await context.bot.send_video(
+                chat_id=chat_id,
+                video=f,
+                caption=clean_caption,
+                parse_mode="Markdown",
+                supports_streaming=True,
+                write_timeout=300,
+                read_timeout=300
+            )
+        return True
+    except Exception as e:
+        print(f"⚠️ Intento 1 de subida falló ({e}). Recomprimiendo a 12MB y reintentando...")
+
+    # Intento 2: Recomprimir a 12MB y reintentar send_video
+    try:
+        final_video = ensure_under_telegram_limit(final_video, max_bytes=12 * 1024 * 1024)
+        await asyncio.sleep(1.5)
+        with open(final_video, "rb") as f:
+            await context.bot.send_video(
+                chat_id=chat_id,
+                video=f,
+                caption=clean_caption,
+                parse_mode="Markdown",
+                supports_streaming=True,
+                write_timeout=300,
+                read_timeout=300
+            )
+        return True
+    except Exception as e:
+        print(f"⚠️ Intento 2 de subida falló ({e}). Probando envío alternativo como documento...")
+
+    # Intento 3: Envío como documento
+    try:
+        with open(final_video, "rb") as f:
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=f,
+                caption=clean_caption,
+                parse_mode="Markdown",
+                write_timeout=300,
+                read_timeout=300
+            )
+        return True
+    except Exception as e:
+        print(f"❌ Error crítico en subida a Telegram: {e}")
+        raise
 
 ACTIVE_TASKS = {}
 PENDING_VIDEOS = {}
@@ -1000,17 +1126,7 @@ async def resume_editing_pending(chat_id, context, pending, custom_top, custom_b
         )
 
         caption_text = f"🔥 *{clean_top_title}*\n\n{video_data['caption']}"
-
-        with open(final_video, "rb") as f:
-            await context.bot.send_video(
-                chat_id=chat_id,
-                video=f,
-                caption=caption_text,
-                parse_mode="Markdown",
-                supports_streaming=True,
-                write_timeout=180,
-                read_timeout=120
-            )
+        await safe_send_video(context, chat_id, final_video, caption_text)
 
         try:
             await msg.delete()
@@ -1045,11 +1161,12 @@ async def resume_editing_pending(chat_id, context, pending, custom_top, custom_b
             except Exception:
                 pass
 
-async def process_and_send(chat_id, context, custom_topic=None, direct_url=None, custom_top=None, custom_bottom=None, is_scheduled=False):
+async def process_and_send(chat_id, context, custom_topic=None, direct_url=None, custom_top=None, custom_bottom=None, is_scheduled=False, batch_info=None, is_batch_item=False):
     header = "⏰ *[ENVÍO DIARIO PROGRAMADO]*\n\n" if is_scheduled else ""
+    batch_prefix = f"📦 *[Video {batch_info['index']}/{batch_info['total']}]*\n" if batch_info else ""
     msg = await context.bot.send_message(
         chat_id=chat_id,
-        text=f"{header}🔍 *[1/5]* Localizando clip de video...",
+        text=f"{header}{batch_prefix}🔍 *[1/5]* Localizando clip de video...",
         parse_mode="Markdown",
         reply_markup=CANCEL_KEYBOARD
     )
@@ -1058,27 +1175,33 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
     
     current_task = asyncio.current_task()
     chat_key = str(chat_id)
-    ACTIVE_TASKS[chat_key] = {
-        "task": current_task,
-        "msg": msg,
-        "raw_clip": None,
-        "final_video": None
-    }
+    if not is_batch_item or chat_key not in ACTIVE_TASKS:
+        ACTIVE_TASKS[chat_key] = {
+            "task": current_task,
+            "msg": msg,
+            "raw_clip": None,
+            "final_video": None
+        }
+    else:
+        ACTIVE_TASKS[chat_key]["msg"] = msg
+        ACTIVE_TASKS[chat_key]["raw_clip"] = None
+        ACTIVE_TASKS[chat_key]["final_video"] = None
 
     try:
         if direct_url:
             data = {"search_query": direct_url, "top_title": "DEBATE VIRAL", "speaker_name": "DEBATE", "caption": ""}
             target = direct_url
+            disp_url = direct_url[:45] + "..." if len(direct_url) > 45 else direct_url
             await update_status(
                 msg,
-                f"{header}📥 *[2/5]* Enlace detectado:\n`{direct_url[:50]}...`\n\n_Descargando clip en alta calidad..._"
+                f"{header}{batch_prefix}📥 *[2/5]* Enlace detectado:\n`{disp_url}`\n\n_Descargando clip en alta calidad..._"
             )
         else:
             data = await asyncio.to_thread(fetch_trend_data, custom_topic)
             target = data["search_query"]
             await update_status(
                 msg,
-                f"{header}📥 *[2/5]* Búsqueda seleccionada:\n_{data['search_query']}_\n\n_Descargando clip de España..._"
+                f"{header}{batch_prefix}📥 *[2/5]* Búsqueda seleccionada:\n_{data['search_query']}_\n\n_Descargando clip de España..._"
             )
 
         raw_clip, meta_info = await asyncio.to_thread(download_clip, target)
@@ -1087,7 +1210,7 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
 
         await update_status(
             msg,
-            f"{header}🧠 *[3/5]* Interpretando contenido del video para redactar titulares fieles..."
+            f"{header}{batch_prefix}🧠 *[3/5]* Interpretando contenido del video para redactar titulares fieles..."
         )
 
         video_data = await asyncio.to_thread(analyze_video_content, meta_info, data, custom_top, custom_bottom)
@@ -1116,12 +1239,12 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
                 ),
                 parse_mode="Markdown"
             )
-            return
+            return False
 
         clean_top_title = video_data['top_title'].replace('\n', ' ')
         await update_status(
             msg,
-            f"{header}🎬 *[4/5]* Maquetando video:\n*{clean_top_title}*\n\n_Encuadrando interlocutor vertical, aplicando B/N y barra completa al fondo..._"
+            f"{header}{batch_prefix}🎬 *[4/5]* Maquetando video:\n*{clean_top_title}*\n\n_Encuadrando interlocutor vertical, aplicando B/N y barra completa al fondo..._"
         )
 
         final_video = await asyncio.to_thread(
@@ -1132,27 +1255,18 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
 
         await update_status(
             msg,
-            f"{header}📤 *[5/5]* ¡Edición completada!\n\n_Subiendo video a Telegram..._",
+            f"{header}{batch_prefix}📤 *[5/5]* ¡Edición completada!\n\n_Subiendo video a Telegram..._",
             show_cancel=False
         )
 
         caption_text = f"🔥 *{clean_top_title}*\n\n{video_data['caption']}"
-
-        with open(final_video, "rb") as f:
-            await context.bot.send_video(
-                chat_id=chat_id,
-                video=f,
-                caption=caption_text,
-                parse_mode="Markdown",
-                supports_streaming=True,
-                write_timeout=180,
-                read_timeout=120
-            )
+        await safe_send_video(context, chat_id, final_video, caption_text)
 
         try:
             await msg.delete()
         except Exception:
             pass
+        return True
     except asyncio.CancelledError:
         print(f"🛑 Tarea cancelada por el usuario para chat_id {chat_id}")
         if raw_clip and os.path.exists(raw_clip):
@@ -1165,12 +1279,18 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
                 os.remove(final_video)
             except Exception:
                 pass
-        return
+        raise
     except Exception as e:
         print(f"❌ Error en process_and_send: {e}")
-        await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Error: {e}")
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Error procesando video: {e}")
+        return False
     finally:
-        ACTIVE_TASKS.pop(chat_key, None)
+        if not is_batch_item:
+            ACTIVE_TASKS.pop(chat_key, None)
         if raw_clip and os.path.exists(raw_clip):
             try:
                 os.remove(raw_clip)
@@ -1181,6 +1301,53 @@ async def process_and_send(chat_id, context, custom_topic=None, direct_url=None,
                 os.remove(final_video)
             except Exception:
                 pass
+
+async def process_batch(chat_id, context, jobs):
+    """Procesa una lista de videos de forma estrictamente secuencial y los envía en orden."""
+    total = len(jobs)
+    chat_key = str(chat_id)
+    
+    current_task = asyncio.current_task()
+    ACTIVE_TASKS[chat_key] = {
+        "task": current_task,
+        "msg": None,
+        "raw_clip": None,
+        "final_video": None
+    }
+    
+    if total > 1:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"📋 *Lote de {total} videos recibido.*\n_Se irán editando en orden y enviando uno a uno a medida que estén listos..._",
+            parse_mode="Markdown"
+        )
+        
+    success_count = 0
+    try:
+        for idx, job in enumerate(jobs, 1):
+            batch_info = {"index": idx, "total": total} if total > 1 else None
+            ok = await process_and_send(
+                chat_id=chat_id,
+                context=context,
+                direct_url=job["url"],
+                custom_top=job["custom_top"],
+                custom_bottom=job["custom_bottom"],
+                batch_info=batch_info,
+                is_batch_item=True
+            )
+            if ok:
+                success_count += 1
+                
+        if total > 1 and success_count == total:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🎉 *¡Lote completado!*\nSe han editado y enviado los *{total} videos* en orden con éxito.",
+                parse_mode="Markdown"
+            )
+    except asyncio.CancelledError:
+        print(f"🛑 Lote cancelado para chat_id {chat_id}")
+    finally:
+        ACTIVE_TASKS.pop(chat_key, None)
 
 async def scheduled_dispatcher(application):
     """Bucle en segundo plano que comprueba los horarios (12:00, 15:00, 18:00) y envía automáticamente."""
@@ -1213,42 +1380,98 @@ async def cmd_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asyncio.create_task(process_and_send(update.effective_chat.id, context, custom_topic=topic))
 
 def parse_custom_texts(text, target_url=""):
-    """Extrae inteligentemente 'arriba:' y 'abajo:' del mensaje."""
+    """Extrae inteligentemente 'arriba:' y 'abajo:' del texto para un video."""
     clean_text = text.replace(target_url, "").strip()
     
-    arriba_match = re.search(r'(?i)\barriba\s*:\s*(.*?)(?=\b(?:abajo)\s*:|$)', clean_text, re.DOTALL)
-    abajo_match = re.search(r'(?i)\babajo\s*:\s*(.*?)(?=\b(?:arriba)\s*:|$)', clean_text, re.DOTALL)
+    # Limpiar numeración o viñetas iniciales y finales (ej: "1.", "2)", "-", "•")
+    clean_text = re.sub(r'^\s*(?:\d+[\.\)]|[-•*])\s*', '', clean_text)
+    clean_text = re.sub(r'\s*(?:\d+[\.\)]|[-•*])\s*$', '', clean_text).strip()
+
+    arriba_match = re.search(r'(?i)\b(?:arriba|titulo|titular)\s*:\s*(.*?)(?=\b(?:abajo|interlocutor|autor|personaje|nombre)\s*:|$)', clean_text, re.DOTALL)
+    abajo_match = re.search(r'(?i)\b(?:abajo|interlocutor|autor|personaje|nombre)\s*:\s*(.*?)(?=\b(?:arriba|titulo|titular)\s*:|$)', clean_text, re.DOTALL)
     
     custom_top = arriba_match.group(1).strip() if arriba_match else None
     custom_bottom = abajo_match.group(1).strip() if abajo_match else None
     
-    # Si no usó las etiquetas "arriba:" o "abajo:", pero escribió texto junto al enlace
+    if custom_bottom:
+        custom_bottom = re.sub(r'\s*(?:\d+[\.\)]|[-•*])\s*$', '', custom_bottom).strip()
+    if custom_top:
+        custom_top = re.sub(r'\s*(?:\d+[\.\)]|[-•*])\s*$', '', custom_top).strip()
+    
+    # Si no usó etiquetas explícitas (arriba: / abajo:)
     if not custom_top and not custom_bottom and clean_text:
-        if ":" in clean_text:
-            parts = clean_text.split(":", 1)
-            custom_bottom = parts[0].strip()
-            custom_top = parts[1].strip()
-        elif " - " in clean_text:
-            parts = clean_text.split(" - ", 1)
-            if len(parts[0]) <= 20 and len(parts[1]) > len(parts[0]):
+        lines = [l.strip() for l in clean_text.splitlines() if l.strip()]
+        lines = [re.sub(r'^\s*(?:\d+[\.\)]|[-•*])\s*', '', l).strip() for l in lines if l.strip()]
+        lines = [l for l in lines if l]
+        
+        if len(lines) >= 2:
+            custom_top = lines[0]
+            custom_bottom = lines[1]
+        elif len(lines) == 1:
+            line = lines[0]
+            if ":" in line:
+                parts = line.split(":", 1)
                 custom_bottom = parts[0].strip()
                 custom_top = parts[1].strip()
+            elif " - " in line:
+                parts = line.split(" - ", 1)
+                if len(parts[0]) <= 20 and len(parts[1]) > len(parts[0]):
+                    custom_bottom = parts[0].strip()
+                    custom_top = parts[1].strip()
+                else:
+                    custom_top = parts[0].strip()
+                    custom_bottom = parts[1].strip()
             else:
-                custom_top = parts[0].strip()
-                custom_bottom = parts[1].strip()
-        else:
-            custom_top = clean_text
-            
+                custom_top = line
+                
     return custom_top, custom_bottom
 
+def extract_video_jobs(text):
+    """Extrae todos los enlaces y sus respectivos textos 'arriba' y 'abajo' de un mensaje."""
+    if not text:
+        return []
+
+    url_matches = list(re.finditer(r'https?://[^\s]+', text))
+    if not url_matches:
+        return []
+
+    jobs = []
+    n = len(url_matches)
+
+    for i, match in enumerate(url_matches):
+        raw_url = match.group(0).rstrip('.,;:)]}')
+        if n == 1:
+            segment = text
+        else:
+            start_idx = 0 if i == 0 else match.start()
+            end_idx = url_matches[i + 1].start() if i < n - 1 else len(text)
+            segment = text[start_idx:end_idx]
+
+        custom_top, custom_bottom = parse_custom_texts(segment, target_url=raw_url)
+        jobs.append({
+            "url": raw_url,
+            "custom_top": custom_top,
+            "custom_bottom": custom_bottom
+        })
+
+    return jobs
+
 async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
+    text = update.message.text or ""
+    text_args = re.sub(r'^/link\s*', '', text, flags=re.IGNORECASE).strip()
+    if not text_args and not context.args:
         await update.message.reply_text("Uso: `/link https://... [arriba: ...] [abajo: ...]`", parse_mode="Markdown")
         return
-    url = context.args[0]
-    rest = " ".join(context.args[1:]) if len(context.args) > 1 else ""
-    custom_top, custom_bottom = parse_custom_texts(rest)
-    asyncio.create_task(process_and_send(update.effective_chat.id, context, direct_url=url, custom_top=custom_top, custom_bottom=custom_bottom))
+        
+    jobs = extract_video_jobs(text_args)
+    if not jobs and context.args:
+        url = context.args[0]
+        rest = " ".join(context.args[1:]) if len(context.args) > 1 else ""
+        top, bot = parse_custom_texts(rest)
+        jobs = [{"url": url, "custom_top": top, "custom_bottom": bot}]
+
+    if jobs:
+        asyncio.create_task(process_batch(update.effective_chat.id, context, jobs))
 
 async def cmd_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.datetime.now().strftime("%H:%M:%S")
@@ -1291,25 +1514,24 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/video [tema]` — Busca y maqueta un clip sobre un tema concreto (ej. `/video pensiones`).\n"
         "• `/cancelar` (o `/abort`) — Cancela inmediatamente la descarga o maquetación en curso.\n"
         "• `/horarios` — Consulta los horarios automáticos de envío diario (12:00, 15:00, 18:00).\n\n"
-        "🔗 *Pegado de enlaces con textos personalizados:*\n"
-        "Puedes pegar cualquier enlace indicando `arriba:` y `abajo:`:\n"
+        "🔗 *Pegado de enlaces (individuales o en lote):*\n"
+        "Puedes pegar uno o varios enlaces en el mismo mensaje, indicando sus textos `arriba:` y `abajo:`:\n"
         "```text\n"
-        "https://... arriba: Frase para arriba abajo: Nombre interlocutor\n"
+        "https://... arriba: Titular video 1 abajo: Personaje 1\n\n"
+        "https://... arriba: Titular video 2 abajo: Personaje 2\n"
         "```\n"
-        "💡 _Si la frase de arriba es demasiado larga, el bot la reescribirá automáticamente para que encaje perfecta en dos líneas._",
+        "⚡ _El bot editará los videos en orden y te los irá mandando según terminen. Admite videos de cualquier duración (> 1:30 min)._",
         parse_mode="Markdown"
     )
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
-    urls = re.findall(r'https?://[^\s]+', text)
     chat_id = update.effective_chat.id
     chat_key = str(chat_id)
 
-    if urls:
-        target_url = urls[0]
-        custom_top, custom_bottom = parse_custom_texts(text, target_url)
-        asyncio.create_task(process_and_send(chat_id, context, direct_url=target_url, custom_top=custom_top, custom_bottom=custom_bottom))
+    jobs = extract_video_jobs(text)
+    if jobs:
+        asyncio.create_task(process_batch(chat_id, context, jobs))
     elif chat_key in PENDING_VIDEOS or chat_id in PENDING_VIDEOS:
         # El usuario está respondiendo a la pregunta sobre qué titular poner en el video descargado
         pending = PENDING_VIDEOS.pop(chat_key, None) or PENDING_VIDEOS.pop(chat_id, None)
@@ -1330,12 +1552,13 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         asyncio.create_task(resume_editing_pending(chat_id, context, pending, custom_top, custom_bottom))
     else:
         await update.message.reply_text(
-            "💡 Envíame un enlace de TikTok, Instagram Reel o YouTube Shorts para maquetarlo.\n\n"
-            "📝 *Personalizar textos:*\n"
+            "💡 Envíame uno o varios enlaces de TikTok, Instagram Reel o YouTube Shorts para maquetarlos.\n\n"
+            "📝 *Ejemplo con varios enlaces en el mismo mensaje:*\n"
             "```text\n"
-            "https://... arriba: Tu titular aquí abajo: Tu personaje\n"
+            "https://... arriba: Titular 1 abajo: Autor 1\n\n"
+            "https://... arriba: Titular 2 abajo: Autor 2\n"
             "```\n"
-            "*(Si el video no tiene título claro, te preguntaré qué titular poner antes de maquetarlo).* ",
+            "*(Se editarán en orden y se te irán enviando uno a uno).* ",
             parse_mode="Markdown"
         )
 
@@ -1343,14 +1566,20 @@ async def post_init(application):
     asyncio.create_task(scheduled_dispatcher(application))
 
 def main():
+    request = HTTPXRequest(
+        connection_pool_size=20,
+        connect_timeout=60.0,
+        read_timeout=300.0,
+        write_timeout=300.0,
+        pool_timeout=60.0,
+        http_version="1.1"
+    )
     app = (
         ApplicationBuilder()
         .token(TELEGRAM_BOT_TOKEN)
+        .request(request)
         .concurrent_updates(True)
         .post_init(post_init)
-        .connect_timeout(60)
-        .read_timeout(120)
-        .write_timeout(180)
         .build()
     )
     app.add_handler(CommandHandler("video", cmd_video))
